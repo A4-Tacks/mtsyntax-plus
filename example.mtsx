@@ -1,0 +1,22 @@
+{
+    name: ["TEST", ".test"],
+    hide: false,
+
+    defines: [
+        //!includeBegin
+        string-escape = /\\(?:[nrt'"\\]|(.))/
+            $0: "strEscape"
+            $1: "error"
+
+        string = /"(?:[^"\\]|/ @string-escape /)*"/
+            $0: "string"
+
+        string-def := @string
+            $recordAllGroups: true
+        //!includeEnd
+    ]
+
+    contains: [
+        {include: "string-def"}
+    ]
+}
