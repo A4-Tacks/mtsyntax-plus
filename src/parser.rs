@@ -1,6 +1,43 @@
 pub use parser::*;
 
-use crate::{Rule, Expr};
+use crate::{Rule, Expr, RuleData, Pattern};
+use std::borrow::Cow;
+
+fn new_rule_data<'a>(
+    regexp: bool,
+    mut exprs: Vec<Expr<'a>>,
+    attrs: Vec<(&'a str, &'a str)>,
+    mut colors: Vec<Option<&'a str>>,
+) -> RuleData<'a> {
+    if let Some(first) = colors.first_mut()
+        .map(|color| color.take())
+        .flatten()
+    {
+        colors.insert(1, first.into());
+        match &mut exprs[..] {
+            [Expr::Literal(s, n), ..] => {
+                s.to_mut().insert(1, '(');
+                *n += 1;
+            },
+            _ => exprs.insert(0, Expr::Literal("/(/".into(), 1)),
+        }
+        match &mut exprs[..] {
+            [.., Expr::Literal(s, _)] => {
+                let tail = s.to_mut().pop().unwrap();
+                s.to_mut().push(')');
+                s.to_mut().push(tail);
+            },
+            _ => exprs.push(Expr::Literal("/)/".into(), 0)),
+        }
+    }
+    RuleData {
+        exprs,
+        colors,
+        group_count: None,
+        regexp,
+        attrs,
+    }
+}
 
 peg::parser!(grammar parser() for str {
     rule newline()
@@ -23,6 +60,10 @@ peg::parser!(grammar parser() for str {
             ['a'..='z' | 'A'..='Z' | '0'..='9' | '_' | '-']+
         )}
         / expected!("ident")
+
+    rule eident() -> Cow<'input, str>
+        = i:ident() { format!("\"{i}\"").into() }
+        / s:string() { s.into() }
 
     pub rule string() -> &'input str
         = quiet!{
@@ -108,56 +149,43 @@ peg::parser!(grammar parser() for str {
                 Expr::KwdsToRegex(s)
             }
         / "@" i:ident() { Expr::Ref(i) }
-        / "&"
-            n:( i:ident() { format!("\"{i}\"").into() }
-              / s:string() { s.into() })
-            c:("(" n:unum() ")" { n })? { Expr::Include(n, c.unwrap_or(0)) }
+        / "&" n:eident()
+              c:("(" n:unum() ")" { n })?
+              { Expr::Include(n, c.unwrap_or(0)) }
 
     pub rule mt_rule() -> Rule<'input>
         = name:ident()
-        _ vars:(
+        _ pats:(
             ":="
             _ exprs:expr() ++ (_ ("+" _)?)
             _ attrs:attrs()
             _ colors:colors()
-            { (false, exprs, attrs, colors) }
+            { vec![new_rule_data(false, exprs, attrs, colors).into()] }
+          / ":=" _ "{"
+            pats:(
+                _
+                p:( ":"
+                    _ exprs:expr() ++ (_ ("+" _)?)
+                    _ attrs:attrs()
+                    _ colors:colors()
+                    { new_rule_data(false, exprs, attrs, colors).into() }
+                / "::"
+                    _ name:eident()
+                    { Pattern::IncludePattern(name) }
+                )
+                { p }
+            )+
+            _ "}"
+            { pats }
           / "="
             _ exprs:expr() ++ (_ ("+" _)?)
             _ colors:colors()
-            { (true, exprs, vec![], colors) }
+            { vec![new_rule_data(true, exprs, vec![], colors).into()] }
         )
         {
-            let (hidden, mut exprs, attrs, mut colors) = vars;
-
-            if let Some(first) = colors.first_mut()
-                .map(|color| color.take())
-                .flatten()
-            {
-                colors.insert(1, first.into());
-                let [b, e] = ["/(/", "/)/"];
-                match &mut exprs[..] {
-                    [Expr::Literal(s, n), ..] => {
-                        s.to_mut().insert(1, '(');
-                        *n += 1;
-                    },
-                    _ => exprs.insert(0, Expr::Literal("/(/".into(), 1)),
-                }
-                match &mut exprs[..] {
-                    [.., Expr::Literal(s, _)] => {
-                        let tail = s.to_mut().pop().unwrap();
-                        s.to_mut().push(')');
-                        s.to_mut().push(tail);
-                    },
-                    _ => exprs.push(Expr::Literal("/)/".into(), 0)),
-                }
-            }
             Rule {
                 name,
-                exprs,
-                colors,
-                group_count: None,
-                hidden,
-                attrs,
+                pats,
             }
         }
 

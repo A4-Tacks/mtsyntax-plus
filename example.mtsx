@@ -9,14 +9,27 @@
             $1: "error"
 
         string = /"(?:[^"\\]|/ @string-escape /)*"/
-            $0: "string"
 
         string-def := @string
             $recordAllGroups: true
+            $0: "string"
+
+        r-string-def := /r/ @string
+            $recordAllGroups: true
+            $0: "keyword2"
+
+        num = /\b\d+\b/
+            $0: "number"
+
+        value-def := {
+            ::string-def
+            ::r-string-def
+            : @num
+        }
         //!includeEnd
     ]
 
     contains: [
-        {include: "string-def"}
+        {include: "value-def"}
     ]
 }

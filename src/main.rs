@@ -55,10 +55,13 @@ fn main() -> io::Result<()> {
         println!();
         match e {
             Error::UndefineRef(name) => {
-                eprintln!("BuildError: undefine reference {name}");
+                eprintln!("BuildError: undefine reference `{name}`");
             },
             Error::RepeatDefineName(name) => {
-                eprintln!("BuildError: repeat define name {name}");
+                eprintln!("BuildError: repeat define name `{name}`");
+            },
+            Error::RefNotARegexp(name) => {
+                eprintln!("BuildError: reference `{name}` is not a regexp define");
             },
             Error::IOError(e) => Err(e)?,
         }

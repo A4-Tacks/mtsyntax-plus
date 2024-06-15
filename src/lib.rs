@@ -44,6 +44,7 @@ macro_rules! assert_match {
 pub enum Error {
     UndefineRef(String),
     RepeatDefineName(String),
+    RefNotARegexp(String),
     IOError(io::Error),
 }
 impl From<io::Error> for Error {
@@ -113,7 +114,11 @@ impl Expr<'_> {
             | &Expr::KwdsToRegex(_) => (),
             | &Expr::Ref(name) => {
                 let rule = ctx.rule_map.get(name)
-                    .ok_or_else(|| Error::UndefineRef(name.into()))?;
+                    .ok_or_else(|| Error::UndefineRef(name.into()))
+                    .and_then(|data| {
+                        data.regexp.then_some(data)
+                            .ok_or_else(|| Error::RefNotARegexp(name.into()))
+                    })?;
                 rule.build_colors(octx, ctx)?
             },
             | &Expr::Literal(_, count)
@@ -135,15 +140,15 @@ impl Expr<'_> {
 }
 
 #[derive(Debug)]
-pub struct Rule<'a> {
-    name: &'a str,
+pub struct RuleData<'a> {
     exprs: Vec<Expr<'a>>,
     colors: Vec<Option<&'a str>>,
     group_count: Option<u32>,
-    hidden: bool,
+    regexp: bool,
     attrs: Vec<(&'a str, &'a str)>,
 }
-impl<'a> Rule<'a> {
+
+impl<'a> RuleData<'a> {
     pub fn update_group_count<F>(&mut self, mut f: F) -> Result<()>
     where F: FnMut(&str) -> Option<u32>
     {
@@ -186,14 +191,13 @@ impl<'a> Rule<'a> {
     ) -> Result<()>
     where F: FnMut(std::fmt::Arguments<'_>) -> io::Result<()>,
     {
-        octx.output(fa!("\"{}\": ", self.name))?;
-        if self.hidden {
+        if self.regexp {
             for expr in self.exprs.iter().take(self.exprs.len() - 1) {
                 octx.output(fa!("{expr} + "))?;
             }
-            octx.outputln(fa!("{}", self.exprs.last().unwrap()))?;
+            octx.output(fa!("{}", self.exprs.last().unwrap()))?;
         } else {
-            octx.with_block(|octx| {
+            octx.with_block(['{', '}'], |octx| {
                 octx.output(fa!("match: "))?;
                 for expr in self.exprs.iter().take(self.exprs.len() - 1) {
                     octx.output(fa!("{expr} + "))?;
@@ -216,9 +220,88 @@ impl<'a> Rule<'a> {
 }
 
 #[derive(Debug)]
+pub enum Pattern<'a> {
+    Normal(RuleData<'a>),
+    IncludePattern(Cow<'a, str>),
+}
+impl<'a> From<RuleData<'a>> for Pattern<'a> {
+    fn from(value: RuleData<'a>) -> Self {
+        Self::Normal(value)
+    }
+}
+impl Pattern<'_> {
+    pub fn update_group_count<F>(&mut self, f: F) -> Result<()>
+    where F: FnMut(&str) -> Option<u32>
+    {
+        match self {
+            Pattern::Normal(data) => data.update_group_count(f),
+            Pattern::IncludePattern(_) => Ok(()),
+        }
+    }
+
+    pub fn build<F>(
+        &self,
+        ctx: &BuildContext<'_>,
+        octx: &mut OutputContext<'_, F>,
+    ) -> Result<()>
+    where F: FnMut(std::fmt::Arguments<'_>) -> io::Result<()>,
+    {
+        Ok(match self {
+            Pattern::Normal(data) => data.build(ctx, octx)?,
+            Pattern::IncludePattern(name) => {
+                octx.output(fa!("{{include: {name}}}"))?;
+            },
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct Rule<'a> {
+    name: &'a str,
+    pats: Vec<Pattern<'a>>,
+}
+impl<'a> Rule<'a> {
+    pub fn update_group_count<F>(&mut self, mut f: F) -> Result<()>
+    where F: FnMut(&str) -> Option<u32>
+    {
+        self.pats.iter_mut()
+            .try_for_each(|pat| {
+                pat.update_group_count(&mut f)
+            })
+    }
+
+    pub fn build<F>(
+        &self,
+        ctx: &BuildContext<'_>,
+        octx: &mut OutputContext<'_, F>,
+    ) -> Result<()>
+    where F: FnMut(std::fmt::Arguments<'_>) -> io::Result<()>,
+    {
+        octx.output(fa!("\"{}\": ", self.name))?;
+        match &self.pats[..] {
+            [one] => {
+                one.build(ctx, octx)
+            },
+            pats => {
+                octx.with_block(['[', ']'], |octx| {
+                    if let Some(pat) = pats.first() {
+                        pat.build(ctx, octx)?;
+                    }
+                    for pat in pats.iter().skip(1) {
+                        octx.newline()?;
+                        pat.build(ctx, octx)?;
+                    }
+                    Ok(())
+                })?
+            },
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct BuildContext<'a> {
     current_color: Cell<u32>,
-    rule_map: HashMap<String, Rule<'a>>,
+    rule_map: HashMap<String, RuleData<'a>>,
 }
 impl Default for BuildContext<'static> {
     fn default() -> Self {
@@ -279,19 +362,18 @@ where F: FnMut(fmt::Arguments<'_>) -> io::Result<()>,
         res
     }
 
-    pub fn with_block<F1, R>(&mut self, f: F1) -> io::Result<R>
+    pub fn with_block<F1, R>(&mut self, ch: [char; 2], f: F1) -> io::Result<R>
     where F1: FnOnce(&mut Self) -> R,
     {
-        self.indent_level += 1;
-        (self.output)(fa!("{{"))?;
-        self.newline()?;
+        let res = self.with_indent(|this| {
+            (this.output)(fa!("{}", ch[0]))?;
+            this.newline()?;
 
-        let res = f(self);
+            io::Result::Ok(f(this))
+        })?;
 
-        self.indent_level -= 1;
         self.newline()?;
-        (self.output)(fa!("}}"))?;
-        self.newline()?;
+        (self.output)(fa!("{}", ch[1]))?;
 
         Ok(res)
     }
@@ -320,11 +402,16 @@ where I: IntoIterator<Item = Rule<'a>>,
         })?;
 
         rule.build(ctx, octx)?;
+        octx.newline()?;
 
-        if let Some(rule) = ctx.rule_map
-            .insert((*rule.name).into(), rule)
+        if let Some(Pattern::Normal(data))
+            = rule.pats.into_iter().next()
         {
-            return Err(Error::RepeatDefineName((*rule.name).into()));
+            if let Some(_) = ctx.rule_map
+                .insert((*rule.name).into(), data)
+            {
+                return Err(Error::RepeatDefineName((*rule.name).into()));
+            }
         }
     }
     Ok(())
