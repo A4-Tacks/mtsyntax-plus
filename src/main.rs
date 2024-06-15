@@ -10,6 +10,7 @@ fn main() -> io::Result<()> {
         eprintln!("Error: Invalid args, expected args count = 0\n");
         eprintln!("将MT管理器语法进行强化, 使其正则定义可以携带颜色");
         eprintln!("input from stdin, output to stdout");
+        eprintln!("version: {}", env!("CARGO_PKG_VERSION"));
         exit(2);
     }
 
