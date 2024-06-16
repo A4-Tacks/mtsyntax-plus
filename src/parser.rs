@@ -14,22 +14,33 @@ fn new_rule_data<'a>(
         .flatten()
     {
         colors.insert(1, first.into());
-        match &mut exprs[..] {
-            [Expr::Literal(s, n), ..] => {
-                s.to_mut().insert(1, '(');
-                *n += 1;
-            },
-            _ => exprs.insert(0, Expr::Literal("/(/".into(), 1)),
-        }
-        match &mut exprs[..] {
-            [.., Expr::Literal(s, _)] => {
-                let tail = s.to_mut().pop().unwrap();
-                s.to_mut().push(')');
-                s.to_mut().push(tail);
-            },
-            _ => exprs.push(Expr::Literal("/)/".into(), 0)),
-        }
+        exprs.insert(0, Expr::Literal("/(/".into(), 1));
+        exprs.push(Expr::Literal("/)/".into(), 0))
     }
+    let len = exprs.len();
+    let mut exprs = exprs.into_iter()
+        .fold(Vec::with_capacity(len), |mut acc, expr| {
+            let Some(Expr::Literal(last, lc))
+                = acc.last_mut()
+            else {
+                acc.push(expr);
+                return acc;
+            };
+            assert_ne!(last.len(), 0);
+            match expr {
+                Expr::Literal(lit, c)
+                if lit.chars().next() == last.chars().next() => {
+                    last.to_mut().pop().unwrap();
+                    last.to_mut().push_str(&lit[1..]);
+                    *lc += c;
+                },
+                _ => {
+                    acc.push(expr);
+                }
+            }
+            acc
+        });
+    exprs.shrink_to_fit();
     RuleData {
         exprs,
         colors,
@@ -142,8 +153,25 @@ peg::parser!(grammar parser() for str {
             "\""
             { s.len() as u32 }
 
+    rule expr_sugar() -> Expr<'input>
+        = "|" { Expr::Literal("/|/".into(), 0) }
+        / "(?:" { Expr::Literal("/(?:/".into(), 0) }
+        / "(" { Expr::Literal("/(/".into(), 1) }
+        / ")"
+            x:( "{" a:unum() _ "," _ b:unum() "}"
+                    { Expr::Literal(format!("/){{{a},{b}}}/").into(), 0) }
+              / "{" a:unum() _ "," _ "}"
+                    { Expr::Literal(format!("/){{{a},}}/").into(), 0) }
+              / "{" _ "," _ b:unum() "}"
+                    { Expr::Literal(format!("/){{,{b}}}/").into(), 0) }
+              / "{" n:unum() "}"
+                    { Expr::Literal(format!("/){{{n}}}/").into(), 0) }
+              / { Expr::Literal("/)/".into(), 1) }
+            ) { x }
+
     pub rule expr() -> Expr<'input>
         = s:(regex() / string()) { Expr::Literal(s.into(), group_count(s).unwrap()) }
+        / expr_sugar()
         / "keywordsToRegex" "(" _ s:string() ++ (_ ("," _)?) _ ("," _)? ")"
             {
                 Expr::KwdsToRegex(s)
@@ -225,6 +253,7 @@ mod tests {
             $1: "red" // abc
 
         bar := @foo + /;|\// + @foo // ...
+        sugar = (&a) | (?: &b ) | (&c){2} | (&c){2 , 3} | (&d){, 3} | (&d){3 , }
         "#;
         println!("{src}");
 
