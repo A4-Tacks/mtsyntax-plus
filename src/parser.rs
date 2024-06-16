@@ -7,7 +7,7 @@ fn new_rule_data<'a>(
     regexp: bool,
     mut exprs: Vec<Expr<'a>>,
     attrs: Vec<(&'a str, &'a str)>,
-    mut colors: Vec<Option<&'a str>>,
+    mut colors: Vec<Option<Cow<'a, str>>>,
 ) -> RuleData<'a> {
     if let Some(first) = colors.first_mut()
         .and_then(|color| color.take())
@@ -102,11 +102,11 @@ peg::parser!(grammar parser() for str {
         }
         / expected!("number(0..100000)")
 
-    rule color() -> (u32, &'input str)
-        = "$" n:unum() _ ":" _ name:string()
+    rule color() -> (u32, Cow<'input, str>)
+        = "$" n:unum() _ ":" _ name:eident()
         { (n, name) }
 
-    pub rule colors() -> Vec<Option<&'input str>>
+    pub rule colors() -> Vec<Option<Cow<'input, str>>>
         = colors:color() ** _
         {
             let mut res = Vec::new();
@@ -158,6 +158,7 @@ peg::parser!(grammar parser() for str {
     rule expr_sugar() -> Expr<'input>
         = "|" { Expr::Literal("/|/".into(), 0) }
         / "(?:" { Expr::Literal("/(?:/".into(), 0) }
+        / "($" color:eident() { Expr::ColorGroup(color) }
         / "(" { Expr::Literal("/(/".into(), 1) }
         / ")"
             x:( "{" a:unum() _ "," _ b:unum() "}"
@@ -256,6 +257,8 @@ mod tests {
 
         bar := @foo + /;|\// + @foo // ...
         sugar = (&a) | (?: &b ) | (&c){2} | (&c){2 , 3} | (&d){, 3} | (&d){3 , }
+        x := ($red /a/) /(b)/
+            $1: blue
         "#;
         println!("{src}");
 

@@ -60,6 +60,8 @@ pub enum Expr<'a> {
     /// regexp or string literal, and group count.
     /// e.g /ab/ "abi"
     Literal(Cow<'a, str>, u32),
+    /// like Literal, but not consume local color and output is capture group open
+    ColorGroup(Cow<'a, str>),
     /// e.g keywordsToRegex("ab cd", "ef gh")
     KwdsToRegex(Vec<&'a str>),
     /// rule reference, e.g @foo
@@ -72,6 +74,7 @@ impl<'a> fmt::Display for Expr<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Expr::Literal(lit, _) => f.write_str(lit),
+            Expr::ColorGroup(_) => f.write_str("/(/"),
             Expr::KwdsToRegex(kwds) => {
                 write!(f, "keywordsToRegex(")?;
                 if let Some(first) = kwds.first() {
@@ -93,6 +96,7 @@ impl Expr<'_> {
     where F: FnOnce(&str) -> Option<u32>,
     {
         Ok(match self {
+            | &Expr::ColorGroup(_) => 1,
             | &Expr::Include(_, c)
             | &Expr::Literal(_, c) => c,
             | &Expr::KwdsToRegex(_) => 0,
@@ -121,6 +125,12 @@ impl Expr<'_> {
                     })?;
                 rule.build_colors(octx, ctx)?
             },
+            | &Expr::ColorGroup(ref color) => {
+                let id = ctx.current_color.get();
+                octx.newline()?;
+                octx.output(fa!("{id}: {color}"))?;
+                ctx.current_color.set(id + 1);
+            },
             | &Expr::Literal(_, count)
             | &Expr::Include(_, count) => {
                 let cur_color = ctx.current_color.get();
@@ -143,7 +153,7 @@ impl Expr<'_> {
 #[derive(Debug)]
 pub struct RuleData<'a> {
     exprs: Vec<Expr<'a>>,
-    colors: Vec<Option<&'a str>>,
+    colors: Vec<Option<Cow<'a, str>>>,
     group_count: Option<u32>,
     regexp: bool,
     attrs: Vec<(&'a str, &'a str)>,
@@ -193,17 +203,15 @@ impl<'a> RuleData<'a> {
     where F: FnMut(std::fmt::Arguments<'_>) -> io::Result<()>,
     {
         if self.regexp {
-            for expr in self.exprs.iter().take(self.exprs.len() - 1) {
-                octx.output(fa!("{expr} + "))?;
-            }
-            octx.output(fa!("{}", self.exprs.last().unwrap()))?;
+            out_exprs(&self.exprs, |args| {
+                octx.output(args)
+            })?;
         } else {
             octx.with_block(['{', '}'], |octx| {
                 octx.output(fa!("match: "))?;
-                for expr in self.exprs.iter().take(self.exprs.len() - 1) {
-                    octx.output(fa!("{expr} + "))?;
-                }
-                octx.output(fa!("{}", self.exprs.last().unwrap()))?;
+                out_exprs(&self.exprs, |args| {
+                    octx.output(args)
+                })?;
 
                 for &(attr, val) in &self.attrs {
                     octx.newline()?;
@@ -387,6 +395,34 @@ impl Default for OutputContext<'static> {
             Ok(())
         })
     }
+}
+
+/// 融合相邻项并输出结果
+fn out_exprs<'a, F, I>(exprs: I, mut f: F) -> io::Result<()>
+where F: FnMut(std::fmt::Arguments<'_>) -> io::Result<()>,
+      I: IntoIterator<Item = &'a Expr<'a>>,
+{
+    let exprs = exprs.into_iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
+
+    let mut iter = exprs.into_iter();
+    let first = iter.next().unwrap();
+    let end = iter.try_fold(first, |mut a, b| {
+        io::Result::Ok(if let Some('/' | '"') = a.chars()
+            .next_back()
+            .zip(b.chars().next())
+            .and_then(|(a, b)| (a == b).then_some(a))
+        {
+            a.pop().unwrap();
+            a.push_str(&b[1..]);
+            a
+        } else {
+            f(fa!("{a} + "))?;
+            b
+        })
+    })?;
+    f(fa!("{}", end))
 }
 
 pub fn build<'a, I, F>(
