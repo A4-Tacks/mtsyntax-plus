@@ -71,7 +71,7 @@ pub enum Expr<'a> {
 impl<'a> fmt::Display for Expr<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Expr::Literal(lit, _) => f.write_str(&*lit),
+            Expr::Literal(lit, _) => f.write_str(lit),
             Expr::KwdsToRegex(kwds) => {
                 write!(f, "keywordsToRegex(")?;
                 if let Some(first) = kwds.first() {
@@ -110,7 +110,7 @@ impl Expr<'_> {
     where F: FnMut(std::fmt::Arguments<'_>) -> io::Result<()>,
           C: Iterator<Item = Option<&'a str>>,
     {
-        Ok(match self {
+        match self {
             | &Expr::KwdsToRegex(_) => (),
             | &Expr::Ref(name) => {
                 let rule = ctx.rule_map.get(name)
@@ -135,7 +135,8 @@ impl Expr<'_> {
 
                 ctx.current_color.set(cur_color + count);
             },
-        })
+        }
+        Ok(())
     }
 }
 
@@ -246,12 +247,13 @@ impl Pattern<'_> {
     ) -> Result<()>
     where F: FnMut(std::fmt::Arguments<'_>) -> io::Result<()>,
     {
-        Ok(match self {
+        match self {
             Pattern::Normal(data) => data.build(ctx, octx)?,
             Pattern::IncludePattern(name) => {
                 octx.output(fa!("{{include: {name}}}"))?;
             },
-        })
+        }
+        Ok(())
     }
 }
 
@@ -320,7 +322,7 @@ pub struct OutputContext<'a, F = fn(fmt::Arguments<'_>) -> io::Result<()>> {
     output: F,
 }
 
-impl<'a, F> OutputContext<'_, F>
+impl<F> OutputContext<'_, F>
 where F: FnMut(fmt::Arguments<'_>) -> io::Result<()>,
 {
     pub fn new(output: F) -> Self {
@@ -407,10 +409,11 @@ where I: IntoIterator<Item = Rule<'a>>,
         if let Some(Pattern::Normal(data))
             = rule.pats.into_iter().next()
         {
-            if let Some(_) = ctx.rule_map
-                .insert((*rule.name).into(), data)
+            if ctx.rule_map
+                .insert(rule.name.into(), data)
+                .is_some()
             {
-                return Err(Error::RepeatDefineName((*rule.name).into()));
+                return Err(Error::RepeatDefineName(rule.name.into()));
             }
         }
     }

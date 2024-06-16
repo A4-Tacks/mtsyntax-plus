@@ -10,8 +10,7 @@ fn new_rule_data<'a>(
     mut colors: Vec<Option<&'a str>>,
 ) -> RuleData<'a> {
     if let Some(first) = colors.first_mut()
-        .map(|color| color.take())
-        .flatten()
+        .and_then(|color| color.take())
     {
         colors.insert(1, first.into());
         exprs.insert(0, Expr::Literal("/(/".into(), 1));
@@ -92,13 +91,16 @@ peg::parser!(grammar parser() for str {
         / expected!("regex")
 
     pub rule unum() -> u32
-        = s:quiet!{$("0" / !"0" ['0'..='9']+)}
-        {?
-            s.parse().map_err(|_| {
-                "invalid number"
-            })
+        = quiet!{
+            s:$("0" / !"0" ['0'..='9']+)
+            {?
+                s.parse()
+                    .ok()
+                    .filter(|&n| n < 100000)
+                    .ok_or("")
+            }
         }
-        / expected!("number")
+        / expected!("number(0..100000)")
 
     rule color() -> (u32, &'input str)
         = "$" n:unum() _ ":" _ name:string()

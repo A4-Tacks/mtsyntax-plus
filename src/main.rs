@@ -6,8 +6,9 @@ use std::{
 use mtsyntax_plus::{build, parser, BuildContext, Error, OutputContext};
 
 fn main() -> io::Result<()> {
-    if args().count() != 1 {
-        eprintln!("Error: Invalid args, expected args count = 0\n");
+    let count = args().count();
+    if count != 1 {
+        eprintln!("Error: Invalid args count {count}, expected 1 args\n");
         eprintln!("将MT管理器语法进行强化, 使其正则定义可以携带颜色");
         eprintln!("input from stdin, output to stdout");
         eprintln!("version: {}", env!("CARGO_PKG_VERSION"));
