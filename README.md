@@ -109,3 +109,6 @@ cargo run
 ```
 
 即可编译并运行, 要处理的文件从标准输入重定向给程序, 结果会输出到标准输出
+
+一个现成的使用例子: [编译前](https://github.com/A4-Tacks/mindustry_logic_bang_lang/blob/f6428adf4bdecd8ba2245849ff184f54001df6f9/syntax/MT-Manager/MindustryLogic.mtsx)
+[编译后](https://github.com/A4-Tacks/mindustry_logic_bang_lang/blob/f6428adf4bdecd8ba2245849ff184f54001df6f9/syntax/MT-Manager/MindustryLogic-compiled.mtsx)
