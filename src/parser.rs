@@ -166,7 +166,7 @@ peg::parser!(grammar parser() for str {
                     { Expr::Literal(format!("/){{,{b}}}/").into(), 0) }
               / "{" n:unum() "}"
                     { Expr::Literal(format!("/){{{n}}}/").into(), 0) }
-              / { Expr::Literal("/)/".into(), 1) }
+              / { Expr::Literal("/)/".into(), 0) }
             ) { x }
 
     pub rule expr() -> Expr<'input>
