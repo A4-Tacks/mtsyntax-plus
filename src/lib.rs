@@ -69,6 +69,9 @@ pub enum Expr<'a> {
     /// Include extern regexp, and group count
     /// e.g `&foo` `&foo(2)`
     Include(Cow<'a, str>, u32),
+    /// Include ref, but not build colors
+    /// e.g `&foo(@)`
+    IncludeRef(&'a str),
 }
 impl<'a> fmt::Display for Expr<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -85,7 +88,8 @@ impl<'a> fmt::Display for Expr<'a> {
                 }
                 write!(f, ")")
             },
-            Expr::Ref(name) => write!(f, "include(\"{name}\")"),
+            Expr::Ref(name) | Expr::IncludeRef(name)
+                => write!(f, "include(\"{name}\")"),
             Expr::Include(name, _) => write!(f, "include({name})"),
         }
     }
@@ -100,7 +104,8 @@ impl Expr<'_> {
             | &Expr::Include(_, c)
             | &Expr::Literal(_, c) => c,
             | &Expr::KwdsToRegex(_) => 0,
-            | &Expr::Ref(name) => f(name)
+            | &Expr::Ref(name)
+            | &Expr::IncludeRef(name) => f(name)
                 .ok_or_else(|| Error::UndefineRef(name.into()))?,
         })
     }
@@ -124,6 +129,17 @@ impl Expr<'_> {
                             .ok_or_else(|| Error::RefNotARegexp(name.into()))
                     })?;
                 rule.build_colors(octx, ctx)?
+            },
+            | &Expr::IncludeRef(name) => {
+                let rule = ctx.rule_map.get(name)
+                    .ok_or_else(|| Error::UndefineRef(name.into()))
+                    .and_then(|data| {
+                        data.regexp.then_some(data)
+                            .ok_or_else(|| Error::RefNotARegexp(name.into()))
+                    })?;
+
+                let cur_color = ctx.current_color.get();
+                ctx.current_color.set(cur_color + rule.group_count.unwrap());
             },
             | &Expr::ColorGroup(ref color) => {
                 let id = ctx.current_color.get();

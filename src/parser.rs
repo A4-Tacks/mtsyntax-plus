@@ -180,6 +180,7 @@ peg::parser!(grammar parser() for str {
                 Expr::KwdsToRegex(s)
             }
         / "@" i:ident() { Expr::Ref(i) }
+        / "&" i:ident() "(@)" { Expr::IncludeRef(i) }
         / "&" n:eident()
               c:("(" n:unum() ")" { n })?
               { Expr::Include(n, c.unwrap_or(0)) }
