@@ -162,15 +162,28 @@ peg::parser!(grammar parser() for str {
         / "(" { Expr::Literal("/(/".into(), 1) }
         / ")"
             x:( "{" a:unum() _ "," _ b:unum() "}"
-                    { Expr::Literal(format!("/){{{a},{b}}}/").into(), 0) }
+                    { format!("/){{{a},{b}}}/").into() }
               / "{" a:unum() _ "," _ "}"
-                    { Expr::Literal(format!("/){{{a},}}/").into(), 0) }
+                    { format!("/){{{a},}}/").into() }
               / "{" _ "," _ b:unum() "}"
-                    { Expr::Literal(format!("/){{,{b}}}/").into(), 0) }
+                    { format!("/){{,{b}}}/").into() }
               / "{" n:unum() "}"
-                    { Expr::Literal(format!("/){{{n}}}/").into(), 0) }
-              / { Expr::Literal("/)/".into(), 0) }
-            ) { x }
+                    { format!("/){{{n}}}/").into() }
+              / "*" { "/)*/".into() }
+              / "+" { "/)+/".into() }
+              / "?" { "/)?/".into() }
+              /     { "/)/".into() }
+            )
+            min:"?"?
+            {
+                let mut x: Cow<_> = x;
+                if min.is_some() {
+                    let ch = x.to_mut().pop().unwrap();
+                    x.to_mut().push('?');
+                    x.to_mut().push(ch);
+                }
+                Expr::Literal(x, 0)
+            }
 
     pub rule expr() -> Expr<'input>
         = s:(regex() / string()) { Expr::Literal(s.into(), group_count(s).unwrap()) }
