@@ -109,6 +109,8 @@ MT管理器语法文件强化语法, 主要作用就是可以自动展开regexp 
 
 
 # 如何使用
+你可以从 Releases 下载已经编译好的成品进行使用, 又或者你可以手动编译, 如下:
+
 在拥有rust编译环境的情况下, 在项目目录下输入
 
 ```
@@ -116,6 +118,10 @@ cargo run
 ```
 
 即可编译并运行, 要处理的文件从标准输入重定向给程序, 结果会输出到标准输出
+
+编辑MT语法文件的话, 有一个vim对MT语法文件的高亮[MT高亮]
+
+[MT高亮]: https://github.com/A4-Tacks/abnf_to_mtsx/tree/main/editor-plugins/mtsyntax.vim
 
 一个现成的使用例子: [编译前](https://github.com/A4-Tacks/mindustry_logic_bang_lang/blob/f6428adf4bdecd8ba2245849ff184f54001df6f9/syntax/MT-Manager/MindustryLogic.mtsx)
 [编译后](https://github.com/A4-Tacks/mindustry_logic_bang_lang/blob/f6428adf4bdecd8ba2245849ff184f54001df6f9/syntax/MT-Manager/MindustryLogic-compiled.mtsx)
