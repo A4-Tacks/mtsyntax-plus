@@ -1,13 +1,13 @@
 pub use parser::*;
 
-use crate::{Rule, Expr, RuleData, Pattern};
+use crate::{Color, Expr, Pattern, Rule, RuleData};
 use std::borrow::Cow;
 
 fn new_rule_data<'a>(
     regexp: bool,
     mut exprs: Vec<Expr<'a>>,
     attrs: Vec<(&'a str, &'a str)>,
-    mut colors: Vec<Option<Cow<'a, str>>>,
+    mut colors: Vec<Option<Vec<Color<'a>>>>,
 ) -> RuleData<'a> {
     if let Some(first) = colors.first_mut()
         .and_then(|color| color.take())
@@ -102,18 +102,20 @@ peg::parser!(grammar parser() for str {
         }
         / expected!("number(0..100000)")
 
-    rule color() -> (u32, Cow<'input, str>)
-        = "$" n:unum() _ ":" _ name:eident()
-        { (n, name) }
+    rule color() -> (u32, Color<'input>)
+        = "$" n:unum() _ ":" _
+        res:( pats:pattern_group()  { pats.into() }
+            / name:eident()         { name.into() }
+        ) { (n, res) }
 
-    pub rule colors() -> Vec<Option<Cow<'input, str>>>
+    pub rule colors() -> Vec<Option<Vec<Color<'input>>>>
         = colors:color() ** _
         {
             let mut res = Vec::new();
             for (id, color) in colors {
                 let id = id as usize;
-                if res.len() <= id { res.resize(id+1, None) }
-                res[id] = color.into();
+                res.extend((res.len()..=id).map(|_| None));
+                res[id].get_or_insert(vec![]).push(color);
             }
             res
         }
@@ -198,36 +200,35 @@ peg::parser!(grammar parser() for str {
               c:("(" n:unum() ")" { n })?
               { Expr::Include(n, c.unwrap_or(0)) }
 
+    rule normal_ruledata() -> RuleData<'input>
+        = exprs:expr() ++ (_ ("+" _)?)
+        _ attrs:attrs()
+        _ colors:colors()
+        { new_rule_data(false, exprs, attrs, colors) }
+    rule include_pattern() -> Pattern<'input>
+        = name:eident()
+        { Pattern::IncludePattern(name) }
+    rule normal_pattern() -> Pattern<'input>
+        = exprs:expr() ++ (_ ("+" _)?)
+        _ colors:colors()
+        { new_rule_data(true, exprs, vec![], colors).into() }
+
+    rule pattern_group_atom() -> Pattern<'input>
+        = ":"  _ rul:normal_ruledata() { rul.into() }
+        / "::" _ pat:include_pattern() { pat }
+    rule pattern_group() -> Vec<Pattern<'input>>
+        = "{" _ pats:(
+            pat:normal_ruledata() { vec![pat.into()] }
+            / pattern_group_atom() ++ _
+        ) _ "}" { pats }
+
     pub rule mt_rule() -> Rule<'input>
         = name:ident()
         _ pats:(
-            ":="
-            _ exprs:expr() ++ (_ ("+" _)?)
-            _ attrs:attrs()
-            _ colors:colors()
-            { vec![new_rule_data(false, exprs, attrs, colors).into()] }
-          / ":=" _ "{"
-            pats:(
-                _
-                p:( ":"
-                    _ exprs:expr() ++ (_ ("+" _)?)
-                    _ attrs:attrs()
-                    _ colors:colors()
-                    { new_rule_data(false, exprs, attrs, colors).into() }
-                / "::"
-                    _ name:eident()
-                    { Pattern::IncludePattern(name) }
-                )
-                { p }
-            )+
-            _ "}"
-            { pats }
-          / "="
-            _ exprs:expr() ++ (_ ("+" _)?)
-            _ colors:colors()
-            { vec![new_rule_data(true, exprs, vec![], colors).into()] }
-        )
-        {
+            ":=" _ rul:normal_ruledata() { vec![rul.into()] }
+          / ":=" _ pats:pattern_group() { pats }
+          / "=" _ pat:normal_pattern() { vec![pat] }
+        ) {
             Rule {
                 name,
                 pats,
@@ -268,6 +269,7 @@ mod tests {
         let src = r#"
         foo = /(abc)/ + "def" + /./
             $1: "red" // abc
+            $1: {/red_sub/} // abc
 
         bar := @foo + /;|\// + @foo // ...
         sugar = (&a) | (?: &b ) | (&c){2} | (&c){2 , 3} | (&d){, 3} | (&d){3 , }

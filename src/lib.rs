@@ -117,7 +117,7 @@ impl Expr<'_> {
         mut color: C,
     ) -> Result<()>
     where F: FnMut(std::fmt::Arguments<'_>) -> io::Result<()>,
-          C: Iterator<Item = Option<&'a str>>,
+          C: Iterator<Item = Option<&'a [Color<'a>]>>,
     {
         match self {
             | &Expr::KwdsToRegex(_) => (),
@@ -153,9 +153,12 @@ impl Expr<'_> {
 
                 for i in 0..count {
                     let id = i + cur_color;
-                    if let Some(Some(color)) = color.next() {
-                        octx.newline()?;
-                        octx.output(fa!("{id}: {color}"))?;
+                    if let Some(Some(subcolors)) = color.next() {
+                        for color in subcolors {
+                            octx.newline()?;
+                            octx.output(fa!("{id}: "))?;
+                            color.build(ctx, octx)?;
+                        }
                     }
                 }
 
@@ -167,9 +170,76 @@ impl Expr<'_> {
 }
 
 #[derive(Debug)]
+pub enum Color<'a> {
+    Color(Cow<'a, str>),
+    Pattern(Vec<Pattern<'a>>),
+}
+
+impl<'a> From<Cow<'a, str>> for Color<'a> {
+    fn from(v: Cow<'a, str>) -> Self {
+        Self::Color(v)
+    }
+}
+impl<'a> From<Vec<Pattern<'a>>> for Color<'a> {
+    fn from(v: Vec<Pattern<'a>>) -> Self {
+        Self::Pattern(v)
+    }
+}
+impl<'a> Color<'a> {
+    fn build<F>(
+        &self,
+        ctx: &BuildContext<'a>,
+        octx: &mut OutputContext<'_, F>,
+    ) -> Result<()>
+    where F: FnMut(std::fmt::Arguments<'_>) -> io::Result<()>,
+    {
+        match self {
+            Color::Color(color) => {
+                octx.output(fa!("{color}"))?;
+            },
+            Color::Pattern(pats) => {
+                match &pats[..] {
+                    [] => unreachable!("pats is empty"),
+                    [pat] => {
+                        pat.build(ctx, octx)?;
+                    },
+                    pats => {
+                        let mut fst = true;
+                        octx.with_block(['[', ']'], |octx| {
+                            for pat in pats {
+                                if fst { octx.newline()?; fst = false }
+                                pat.build(ctx, octx)?;
+                            }
+                            Result::Ok(())
+                        })??;
+                    },
+                }
+            },
+        }
+        Ok(())
+    }
+
+    pub fn as_color(&self) -> Option<&Cow<'a, str>> {
+        if let Self::Color(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
+
+    pub fn as_pattern(&self) -> Option<&Vec<Pattern<'a>>> {
+        if let Self::Pattern(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct RuleData<'a> {
     exprs: Vec<Expr<'a>>,
-    colors: Vec<Option<Cow<'a, str>>>,
+    colors: Vec<Option<Vec<Color<'a>>>>,
     group_count: Option<u32>,
     regexp: bool,
     attrs: Vec<(&'a str, &'a str)>,
