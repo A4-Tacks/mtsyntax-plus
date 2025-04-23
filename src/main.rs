@@ -1,11 +1,30 @@
+use getopts_macro::getopts::Matches;
 use mtsyntax_plus::{build, parser, BuildContext, Error, OutputContext};
 use std::{
     convert::Infallible,
     env::args,
+    fmt::{Debug, Display},
     fs::File,
     io::{self, stdin, stdout, Read, Write},
+    num::NonZeroU32,
     process::exit,
+    str::FromStr,
 };
+
+#[derive(Debug)]
+struct Config {
+    spaces: NonZeroU32,
+    newline: String,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            spaces: NonZeroU32::new(4).unwrap(),
+            newline: "\n".into(),
+        }
+    }
+}
 
 fn error_exit(e: Error) -> Result<Infallible, io::Error> {
     match e {
@@ -23,7 +42,7 @@ fn error_exit(e: Error) -> Result<Infallible, io::Error> {
     exit(3)
 }
 
-fn proc_it(mut io: impl Read) -> io::Result<()> {
+fn proc_it(mut io: impl Read, cfg: &Config) -> io::Result<()> {
     let mut input = String::new();
     io.read_to_string(&mut input)?;
     drop(io);
@@ -54,12 +73,13 @@ fn proc_it(mut io: impl Read) -> io::Result<()> {
             write!(&mut out, "{args}")
         });
 
+    octx.newline_str = &cfg.newline;
     if let Some(' ') | None = indent.chars().next() {
-        octx.indent_level = indent.len() as u32 / 4;
-        octx.indent_str = "    ";
+        octx.indent_level = indent.len() as u32 / cfg.spaces;
+        octx.indent_str = " ".repeat(cfg.spaces.get() as usize).leak();
     } else {
-        octx.indent_str = "\t";
         octx.indent_level = indent.len() as u32;
+        octx.indent_str = "\t";
     }
 
     if let Err(e) = build(rules, &mut octx, &mut ctx) {
@@ -72,8 +92,22 @@ fn proc_it(mut io: impl Read) -> io::Result<()> {
     Ok(())
 }
 
+fn opt_parse<T>(matched: &Matches, nm: &str) -> Option<T>
+where T: FromStr,
+      T::Err: Display,
+{
+    Some(matched.opt_get(nm).transpose()?
+                .unwrap_or_else(|e|
+    {
+        eprintln!("Parse option '{nm}' failed: {e}");
+        exit(2)
+    }))
+}
+
 fn main() {
     let options = getopts_macro::getopts_options! {
+        -s  --spaces=N      "Indent spaces";
+        -n  --newline=S     "Newline string";
         -h  --help          "Show help message";
         -v  --version       "Show version";
         .parsing_style(getopts_macro::getopts::ParsingStyle::FloatingFrees)
@@ -100,16 +134,33 @@ fn main() {
         eprintln!("{}", env!("CARGO_PKG_VERSION"));
         exit(0)
     }
+
+    let mut cfg = Config::default();
+    macro_rules! parse_cfg {
+        ($($field:ident),+ $(,)?) => {
+            $(
+                if let Some($field) = opt_parse(&matched, stringify!($field)) {
+                    cfg.$field = $field;
+                }
+            )+
+        };
+    }
+    parse_cfg! {
+        spaces,
+        newline,
+    }
+
     let files = if matched.free.is_empty() {
         vec!["-".into()]
     } else {
         matched.free
     };
+
     for path in files {
         let res = (|| if path == "-" {
-            proc_it(stdin())
+            proc_it(stdin(), &cfg)
         } else {
-            proc_it(File::open(&path)?)
+            proc_it(File::open(&path)?, &cfg)
         })();
         if let Err(e) = res {
             eprintln!("error ({path}): {e}")
