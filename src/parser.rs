@@ -2,6 +2,7 @@ pub use parser::*;
 
 use crate::{Color, Expr, Pattern, Rule, RuleData};
 use std::borrow::Cow;
+use peg::RuleResult;
 
 fn new_rule_data<'a>(
     regexp: bool,
@@ -49,6 +50,20 @@ fn new_rule_data<'a>(
     }
 }
 
+fn unicode_ident(s: &str, i: usize) -> RuleResult<&str> {
+    macro_rules! err { () => { return RuleResult::Failed }; }
+    let iter = &mut s[i..].char_indices();
+    let Some((_, ch)) = iter.next() else { err!() };
+    if ch != '_' && !unicode_ident::is_xid_start(ch) { err!() }
+    loop {
+        let (end, ch) = iter.next()
+            .unwrap_or((s.len(), ' '));
+        if ch != '-' && ch != '_' && !unicode_ident::is_xid_continue(ch) {
+            return RuleResult::Matched(i+end, &s[i..][..end]);
+        }
+    }
+}
+
 peg::parser!(grammar parser() for str {
     rule newline()
         = "\r"? "\n"
@@ -65,10 +80,7 @@ peg::parser!(grammar parser() for str {
         }
 
     pub rule ident() -> &'input str
-        = quiet!{$(
-            !['0'..='9' | '-']
-            ['a'..='z' | 'A'..='Z' | '0'..='9' | '_' | '-']+
-        )}
+        = #{unicode_ident}
         / expected!("ident")
 
     rule eident() -> Cow<'input, str>
@@ -300,13 +312,46 @@ mod tests {
         foo = /(abc)/ + "def" + &extern(2)
             $1: "red" // abc
 
-        bar := @foo + /;|\// + @foo // ...
+        bar:= @foo + /;|\// + @foo // ...
         //!includeEnd
         some text of end
         "#;
         println!("{src}");
 
         dbg!(script(src).unwrap());
+    }
+
+    #[test]
+    fn ident_test() {
+        let datas = [
+            "foo",
+            "foo-bar",
+            "foo_bar",
+            "foo_bar-",
+            "foo__bar-",
+            "foo--bar-",
+            "foo-bar-你好",
+            "_foo-bar-你好",
+            "你好",
+            "你-好",
+        ];
+        for data in datas {
+            assert_eq!(parser::ident(data), Ok(data));
+        }
+
+        let fails = [
+            "0x",
+            "-0x",
+            "-x",
+            "-x y",
+            "-x.y",
+            "。",
+            "0a",
+        ];
+
+        for fail in fails {
+            assert!(parser::ident(fail).is_err(), "{fail:?}");
+        }
     }
 
     #[test]
