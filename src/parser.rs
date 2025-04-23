@@ -211,6 +211,8 @@ peg::parser!(grammar parser() for str {
         / "&" n:eident()
               c:("(" n:unum() ")" { n })?
               { Expr::Include(n, c.unwrap_or(0)) }
+        / "include(" _ n:eident() _ c:("," _ c:unum() _ {c})? ")"
+              { Expr::Include(n, c.unwrap_or(0)) }
 
     rule normal_ruledata() -> RuleData<'input>
         = exprs:expr() ++ (_ ("+" _)?)
@@ -311,6 +313,8 @@ mod tests {
         //!includeBegin
         foo = /(abc)/ + "def" + &extern(2)
             $1: "red" // abc
+        to = include(extern, 2) + include("foo bar", 3)
+        to_z = include(extern) + include("foo bar")
 
         bar:= @foo + /;|\// + @foo // ...
         //!includeEnd
