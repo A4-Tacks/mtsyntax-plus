@@ -1,30 +1,46 @@
-# from rust-build/rust-build.action
+name: Release
+
+permissions:
+  contents: write
+
 on:
-  release:
-    types: [created]
+  push:
+    tags:
+      - v[0-9]+.*
 
 jobs:
-  release:
-    name: release ${{ matrix.target }}
+  create-release:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/create-gh-release-action@v1
+        with:
+          # (required) GitHub token for creating GitHub Releases.
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  upload-assets:
+    name: release ${{ matrix.target }}
+    needs: create-release
     strategy:
-      fail-fast: false
       matrix:
         include:
-          - target: x86_64-pc-windows-gnu
-            archive: zip
-
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-latest
+          - target: aarch64-apple-darwin
+            os: macos-latest
           - target: x86_64-unknown-linux-musl
-            archive: tar.xz
-
+            os: ubuntu-latest
           - target: x86_64-apple-darwin
-            archive: zip
+            os: macos-latest
+          - target: universal-apple-darwin
+            os: macos-latest
+    runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@master
-      - name: Compile and release
-        uses: rust-build/rust-build.action@v1.4.3
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/checkout@v4
+      - uses: taiki-e/upload-rust-binary-action@v1
         with:
-          RUSTTARGET: ${{ matrix.target }}
-          ARCHIVE_TYPES: ${{ matrix.archive }}
+          bin: mtsyntax-plus
+          archive: $bin-$tag-$target
+          target: ${{ matrix.target }}
+          checksum: sha256
+          token: ${{ secrets.GITHUB_TOKEN }}
