@@ -1,4 +1,4 @@
-use std::{borrow::Cow, cell::Cell, collections::HashMap, fmt, io};
+use std::{borrow::Cow, cell::Cell, collections::HashMap, fmt::{self, Display}, io, ops::{Add, AddAssign}};
 
 pub mod parser;
 
@@ -73,7 +73,7 @@ pub enum Expr<'a> {
     /// e.g `&foo(@)`
     IncludeRef(&'a str),
 }
-impl<'a> fmt::Display for Expr<'a> {
+impl fmt::Display for Expr<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Expr::Literal(lit, _) => f.write_str(lit),
@@ -110,11 +110,45 @@ impl Expr<'_> {
         })
     }
 
+    fn build_colors_map<F>(
+        &self,
+        octx: &mut OutputContext<'_, F>,
+        ctx: &BuildContext<'_>,
+        map: &mut Vec<u32>,
+        cur_color: &mut u32,
+    ) -> Result<()>
+    where F: FnMut(std::fmt::Arguments<'_>) -> io::Result<()>,
+    {
+        match self {
+            &Expr::Include(_, c) |
+            &Expr::Literal(_, c) => {
+                for _ in 0..c {
+                    map.push(*cur_color);
+                    *cur_color += 1;
+                }
+            },
+            &Expr::ColorGroup(_) => {
+                *cur_color += 1;
+            },
+            &Expr::KwdsToRegex(_) => (),
+            &Expr::Ref(name) => {
+                let rule = ctx.get_rule(name)?;
+                rule.build_colors_map(octx, ctx, &mut vec![], cur_color)?
+            },
+            &Expr::IncludeRef(name) => {
+                let rule = ctx.get_rule(name)?;
+                rule.build_colors_map(octx, ctx, map, cur_color)?
+            },
+        }
+        Ok(())
+    }
+
     pub fn build_colors<'a, F, C>(
         &self,
         octx: &mut OutputContext<'_, F>,
         ctx: &BuildContext<'_>,
         mut color: C,
+        map: &[u32],
     ) -> Result<()>
     where F: FnMut(std::fmt::Arguments<'_>) -> io::Result<()>,
           C: Iterator<Item = Option<&'a [Color<'a>]>>,
@@ -122,21 +156,11 @@ impl Expr<'_> {
         match self {
             | &Expr::KwdsToRegex(_) => (),
             | &Expr::Ref(name) => {
-                let rule = ctx.rule_map.get(name)
-                    .ok_or_else(|| Error::UndefineRef(name.into()))
-                    .and_then(|data| {
-                        data.regexp.then_some(data)
-                            .ok_or_else(|| Error::RefNotARegexp(name.into()))
-                    })?;
-                rule.build_colors(octx, ctx)?
+                let rule = ctx.get_rule(name)?;
+                rule.build_colors(octx, ctx, ctx.current_color.get())?
             },
             | &Expr::IncludeRef(name) => {
-                let rule = ctx.rule_map.get(name)
-                    .ok_or_else(|| Error::UndefineRef(name.into()))
-                    .and_then(|data| {
-                        data.regexp.then_some(data)
-                            .ok_or_else(|| Error::RefNotARegexp(name.into()))
-                    })?;
+                let rule = ctx.get_rule(name)?;
 
                 let cur_color = ctx.current_color.get();
                 ctx.current_color.set(cur_color + rule.group_count.unwrap());
@@ -157,7 +181,7 @@ impl Expr<'_> {
                         for color in subcolors {
                             octx.newline()?;
                             octx.output(fa!("{id}: "))?;
-                            color.build(ctx, octx)?;
+                            color.build(ctx, octx, map)?;
                         }
                     }
                 }
@@ -169,9 +193,49 @@ impl Expr<'_> {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum PGroup {
+    Underline,
+    Auto,
+    Id(u32),
+}
+impl PGroup {
+    fn map_id<F>(self, f: F) -> Self
+    where F: FnOnce(u32) -> u32,
+    {
+        match self {
+            PGroup::Id(id) => Self::Id(f(id)),
+            _ => self,
+        }
+    }
+}
+impl Display for PGroup {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PGroup::Underline => write!(f, "_"),
+            PGroup::Auto => write!(f, "auto"),
+            PGroup::Id(id) => write!(f, "{id}"),
+        }
+    }
+}
+impl Add<u32> for PGroup {
+    type Output = Self;
+
+    fn add(mut self, rhs: u32) -> Self::Output {
+        self += rhs;
+        self
+    }
+}
+impl AddAssign<u32> for PGroup {
+    fn add_assign(&mut self, rhs: u32) {
+        if let PGroup::Id(id) = self { *id += rhs }
+    }
+}
+
 #[derive(Debug)]
 pub enum Color<'a> {
     Color(Cow<'a, str>),
+    ParseColor([PGroup; 2], [Cow<'a, str>; 2]),
     Pattern(Vec<Pattern<'a>>),
 }
 
@@ -186,16 +250,29 @@ impl<'a> From<Vec<Pattern<'a>>> for Color<'a> {
     }
 }
 impl<'a> Color<'a> {
+    fn offset_group(&mut self, rhs: u32) {
+        if let Color::ParseColor([fg, bg], _) = self {
+            *fg += rhs;
+            *bg += rhs;
+        }
+    }
+
     fn build<F>(
         &self,
         ctx: &BuildContext<'a>,
         octx: &mut OutputContext<'_, F>,
+        map: &[u32],
     ) -> Result<()>
     where F: FnMut(std::fmt::Arguments<'_>) -> io::Result<()>,
     {
         match self {
             Color::Color(color) => {
                 octx.output(fa!("{color}"))?;
+            },
+            Color::ParseColor([fg, bg], [fmt, base]) => {
+                let fg = fg.map_id(|id| map[id as usize]);
+                let bg = bg.map_id(|id| map[id as usize]);
+                octx.output(fa!("\"parseColor({fg},{bg},{fmt},{base})\""))?;
             },
             Color::Pattern(pats) => {
                 match &pats[..] {
@@ -245,7 +322,7 @@ pub struct RuleData<'a> {
     attrs: Vec<(&'a str, &'a str)>,
 }
 
-impl<'a> RuleData<'a> {
+impl RuleData<'_> {
     pub fn update_group_count<F>(&mut self, mut f: F) -> Result<()>
     where F: FnMut(&str) -> Option<u32>
     {
@@ -263,6 +340,7 @@ impl<'a> RuleData<'a> {
         &self,
         octx: &mut OutputContext<'_, F>,
         ctx: &BuildContext<'_>,
+        base_color: u32,
     ) -> Result<()>
     where F: FnMut(std::fmt::Arguments<'_>) -> io::Result<()>,
     {
@@ -274,10 +352,27 @@ impl<'a> RuleData<'a> {
             .skip(1)
             .map(Option::as_deref);
 
+        let map = &mut vec![u32::MAX];
+        self.build_colors_map(octx, ctx, map, &mut {base_color})?;
         for expr in &self.exprs {
-            expr.build_colors(octx, ctx, color.by_ref())?;
+            expr.build_colors(octx, ctx, color.by_ref(), map)?;
         }
 
+        Ok(())
+    }
+
+    pub fn build_colors_map<F>(
+        &self,
+        octx: &mut OutputContext<'_, F>,
+        ctx: &BuildContext<'_>,
+        map: &mut Vec<u32>,
+        cur_color: &mut u32,
+    ) -> Result<()>
+    where F: FnMut(std::fmt::Arguments<'_>) -> io::Result<()>,
+    {
+        for ele in &self.exprs {
+            ele.build_colors_map(octx, ctx, map, cur_color)?;
+        }
         Ok(())
     }
 
@@ -306,7 +401,7 @@ impl<'a> RuleData<'a> {
 
                 ctx.current_color.set(1);
 
-                self.build_colors(octx, ctx)?;
+                self.build_colors(octx, ctx, 1)?;
                 Result::Ok(())
             })??;
         }
@@ -356,7 +451,7 @@ pub struct Rule<'a> {
     name: &'a str,
     pats: Vec<Pattern<'a>>,
 }
-impl<'a> Rule<'a> {
+impl Rule<'_> {
     pub fn update_group_count<F>(&mut self, mut f: F) -> Result<()>
     where F: FnMut(&str) -> Option<u32>
     {
@@ -399,12 +494,25 @@ pub struct BuildContext<'a> {
     current_color: Cell<u32>,
     rule_map: HashMap<String, RuleData<'a>>,
 }
+
 impl Default for BuildContext<'static> {
     fn default() -> Self {
         Self {
             current_color: 0.into(),
             rule_map: HashMap::new(),
         }
+    }
+}
+
+impl BuildContext<'_> {
+    fn get_rule(&self, name: &str) -> Result<&RuleData> {
+        let rule = self.rule_map.get(name)
+            .ok_or_else(|| Error::UndefineRef(name.into()))
+            .and_then(|data| {
+                data.regexp.then_some(data)
+                    .ok_or_else(|| Error::RefNotARegexp(name.into()))
+            })?;
+        Ok(rule)
     }
 }
 

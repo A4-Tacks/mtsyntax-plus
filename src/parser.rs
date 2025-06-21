@@ -1,6 +1,6 @@
 pub use parser::*;
 
-use crate::{Color, Expr, Pattern, Rule, RuleData};
+use crate::{Color, Expr, PGroup, Pattern, Rule, RuleData};
 use std::borrow::Cow;
 use peg::RuleResult;
 
@@ -14,6 +14,9 @@ fn new_rule_data<'a>(
         .and_then(|color| color.take())
     {
         colors.insert(1, first.into());
+        colors.iter_mut().flatten().flatten().for_each(|color| {
+            color.offset_group(1);
+        });
         exprs.insert(0, Expr::Literal("/(/".into(), 1));
         exprs.push(Expr::Literal("/)/".into(), 0))
     }
@@ -87,12 +90,16 @@ peg::parser!(grammar parser() for str {
         = i:ident() { format!("\"{i}\"").into() }
         / s:string() { s.into() }
 
+    rule estr() -> Cow<'input, str>
+        = s:ident() { s.into() }
+        / "\"" s:str_body() "\"" { s.into() }
+
+    rule str_body() -> &'input str
+        = quiet!{$(("\\" [^'\r' | '\n'] / [^'"' | '\r' | '\n'])*)}
+
     pub rule string() -> &'input str
         = quiet!{
-            $("\"" (
-                "\\" [^'\r' | '\n']
-                / [^'"' | '\r' | '\n']
-            )* "\"")
+            $("\"" str_body() "\"")
         }
         / expected!("string")
 
@@ -115,10 +122,23 @@ peg::parser!(grammar parser() for str {
         / expected!("number(0..100000)")
 
     rule color() -> (u32, Color<'input>)
-        = "$" n:unum() _ ":" _
-        res:( pats:pattern_group()  { pats.into() }
-            / name:eident()         { name.into() }
-        ) { (n, res) }
+        = "$" n:unum() _ ":" _ res:color_content() { (n, res) }
+
+    rule color_content() -> Color<'input>
+        = pats:pattern_group()  { pats.into() }
+        / "parseColor" "("
+            _ fg:parse_color_c()
+            _ "," _ bg:parse_color_c()
+            _ "," _ fmt:estr()
+            _ "," _ base:estr()
+            _ ")"
+            { Color::ParseColor([fg, bg], [fmt, base]) }
+        / name:eident()         { name.into() }
+
+    rule parse_color_c() -> PGroup
+        = "_"       { PGroup::Underline }
+        / "auto"    { PGroup::Auto }
+        / id:unum() { PGroup::Id(id) }
 
     pub rule colors() -> Vec<Option<Vec<Color<'input>>>>
         = colors:color() ** _
