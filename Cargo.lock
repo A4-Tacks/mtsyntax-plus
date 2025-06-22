@@ -3,6 +3,24 @@
 version = 4
 
 [[package]]
+name = "char-classes"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8ccbed7fdc2fa8d72c6b8bee287adba41f5d457d630f6a96f51c20eed91734c1"
+dependencies = [
+ "char-classes-proc_macro",
+]
+
+[[package]]
+name = "char-classes-proc_macro"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ec87592b21b67091918f2f1612eb45d6a6977a42a988a8d3c36fbcf0e2178188"
+dependencies = [
+ "litrs",
+]
+
+[[package]]
 name = "getopts"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -21,9 +39,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "litrs"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b4ce301924b7887e9d637144fdade93f9dfff9b60981d4ac161db09720d39aa5"
+
+[[package]]
 name = "mtsyntax-plus"
 version = "0.2.12"
 dependencies = [
+ "char-classes",
  "getopts-macro",
  "peg",
  "unicode-ident",

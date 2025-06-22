@@ -9,6 +9,7 @@ edition = "2021"
 trace = ["peg/trace"]
 
 [dependencies]
+char-classes = "0.3.1"
 getopts-macro = "0.1.2"
 peg = "0.8.5"
 unicode-ident = "1.0"

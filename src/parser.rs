@@ -1,8 +1,9 @@
 pub use parser::*;
 
 use crate::{Color, Expr, PGroup, Pattern, Rule, RuleData};
-use std::borrow::Cow;
+use char_classes::FirstElem;
 use peg::RuleResult;
+use std::borrow::Cow;
 
 fn new_rule_data<'a>(
     regexp: bool,
@@ -67,17 +68,27 @@ fn unicode_ident(s: &str, i: usize) -> RuleResult<&str> {
     }
 }
 
+macro_rules! any {
+    ($($pat:tt)*) => {
+        |s, i| s[i..].first_elem()
+            .filter(char_classes::any!($($pat)*))
+            .map_or(RuleResult::Failed, |ch| {
+                RuleResult::Matched(i+ch.len_utf8(), ())
+            })
+    };
+}
+
 peg::parser!(grammar parser() for str {
     rule newline()
         = "\r"? "\n"
 
     rule comment()
-        = "//" !"!" [^'\r' | '\n']*
+        = "//" !"!" #{any!(^"\r\n")}*
 
     rule _()
         = quiet!{
             (
-                [' ' | '\t']+
+                #{any!(" \t")}+
                 / comment()? newline()
             )* (comment()? ![_])?
         }
@@ -95,7 +106,7 @@ peg::parser!(grammar parser() for str {
         / "\"" s:str_body() "\"" { s.into() }
 
     rule str_body() -> &'input str
-        = quiet!{$(("\\" [^'\r' | '\n'] / [^'"' | '\r' | '\n'])*)}
+        = $(quiet!{("\\" #{any!(^"\r\n")} / #{any!(^"\"\r\n")})*})
 
     pub rule string() -> &'input str
         = quiet!{
@@ -105,13 +116,13 @@ peg::parser!(grammar parser() for str {
 
     pub rule regex() -> &'input str
         = quiet!{
-            $("/" ("\\/" / [^'/' | '\r' | '\n'])+ "/")
+            $("/" ("\\/" / #{any!(^"/\r\n")})+ "/")
         }
         / expected!("regex")
 
     pub rule unum() -> u32
         = quiet!{
-            s:$("0" / !"0" ['0'..='9']+)
+            s:$("0" / !"0" #{any!("0-9")}+)
             {?
                 s.parse()
                     .ok()
@@ -169,23 +180,23 @@ peg::parser!(grammar parser() for str {
 
     rule group_count_regex_ig()
         = "\\" ("\\"? "/" / [^ '/'])
-        / "(?" !("<" ['a'..='z' | 'A'..='Z'])
-        / [^'(' | '/' | '\\']
+        / "(?" !("<" #{any!("a-zA-Z")})
+        / #{any!(^"(/\\")}
 
     rule group_count_str_ig()
         = "\\\\" [^ '"']
         / "\\" [_]
-        / "(?" !("<" ['a'..='z' | 'A'..='Z'])
-        / [^'(' | '"' | '\\']
+        / "(?" !("<" #{any!("a-zA-Z")})
+        / #{any!(^"(\"\\")}
 
     /// group count, contains `()` and `(?<name>)`
     pub rule group_count() -> u32
         = "/" group_count_regex_ig()*
-            s:("(" (&[^ '?'] / "?<" ['a'..='z' | 'A'..='Z']) group_count_regex_ig()*)*
+            s:("(" (&[^ '?'] / "?<" #{any!("a-zA-Z")}) group_count_regex_ig()*)*
             "/"
             { s.len() as u32 }
         / "\"" group_count_str_ig()*
-            s:("(" (&[^ '?'] / "?<" ['a'..='z' | 'A'..='Z']) group_count_str_ig()*)*
+            s:("(" (&[^ '?'] / "?<" #{any!("a-zA-Z")}) group_count_str_ig()*)*
             "\""
             { s.len() as u32 }
 
@@ -276,16 +287,16 @@ peg::parser!(grammar parser() for str {
         =
         begin:$(
             (
-                [' ' | '\t']*
+                #{any!(" \t")}*
                 !"//!includeBegin"
-                [^'\r' | '\n']*
+                #{any!(^"\r\n")}*
                 newline()
             )*
-            [' ' | '\t']*
+            #{any!(" \t")}*
         )
         "//!includeBegin" newline()
         rules:rule_list()
-        [' ' | '\t']* "//!includeEnd" newline()
+        #{any!(" \t")}* "//!includeEnd" newline()
         end:$([_]*)
         {
             (begin, rules, end)
