@@ -1,0 +1,12 @@
+foo := /[0-9a-f]{6}/
+    $0: parseColor(auto,0,HEX,error)
+    $0: {/[a-f]/ $0: propKey}
+-- end --
+"foo": {
+    match: /([0-9a-f]{6})/
+    1: "parseColor(auto,1,HEX,error)"
+    1: {
+        match: /([a-f])/
+        1: "propKey"
+    }
+}

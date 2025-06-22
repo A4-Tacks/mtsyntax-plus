@@ -1,0 +1,9 @@
+foo := /"([^"]*)"/
+    $0: "string"
+    $1: "keyword"
+-- end --
+"foo": {
+    match: /("([^"]*)")/
+    1: "string"
+    2: "keyword"
+}

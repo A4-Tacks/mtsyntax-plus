@@ -1,0 +1,13 @@
+foo = /(a)/ ($red /red/) /(b)/
+    $1: a
+    $2: b
+bar := ($blue /blue/) @foo
+-- end --
+"foo": /(a)(red)(b)/
+"bar": {
+    match: /(blue)/ + include("foo")
+    1: "blue"
+    2: "a"
+    3: "red"
+    4: "b"
+}

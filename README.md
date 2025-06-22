@@ -267,7 +267,7 @@ cargo run
 
 即可编译并运行, 要处理的文件从标准输入重定向给程序, 结果会输出到标准输出
 
-编辑MT语法文件的话, 有一个vim对MT语法文件的高亮[MT高亮]
+如果使用vim编辑MT语法文件的话, 可以使用该[MT高亮]进行高亮等
 
 [MT高亮]: https://github.com/A4-Tacks/abnf_to_mtsx/tree/main/editor-plugins/mtsyntax.vim
 

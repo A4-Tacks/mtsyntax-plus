@@ -1,0 +1,9 @@
+foo = /foo/
+    $0: foo
+foo-def := @foo
+-- end --
+"foo": /(foo)/
+"foo-def": {
+    match: include("foo")
+    1: "foo"
+}

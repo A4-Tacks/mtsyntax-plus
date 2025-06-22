@@ -1,0 +1,11 @@
+foo = /(b)/
+bar := /(a)/ @foo /(c)/
+    $1: "string"
+    $2: "string"
+-- end --
+"foo": /(b)/
+"bar": {
+    match: /(a)/ + include("foo") + /(c)/
+    1: "string"
+    3: "string"
+}

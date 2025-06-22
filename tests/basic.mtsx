@@ -1,0 +1,11 @@
+string = /"(?:\\.|[^"\\\r\n])*"/
+    $0: string
+value := @string | /\d+/
+    $0: number
+-- end --
+"string": /("(?:\\.|[^"\\\r\n])*")/
+"value": {
+    match: /(/ + include("string") + /|\d+)/
+    1: "number"
+    2: "string"
+}
