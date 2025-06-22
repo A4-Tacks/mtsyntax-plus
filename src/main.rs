@@ -31,11 +31,11 @@ impl Default for Config {
 
 fn error_exit(e: Error) -> Result<Infallible, io::Error> {
     match e {
-        Error::UndefineRef(name) => {
-            eprintln!("BuildError: undefine reference `{name}`");
+        Error::UndefinedRef(name) => {
+            eprintln!("BuildError: undefined reference `{name}`");
         },
-        Error::RepeatDefineName(name) => {
-            eprintln!("BuildError: repeat define name `{name}`");
+        Error::DuplicateDefine(name) => {
+            eprintln!("BuildError: duplicate define `{name}`");
         },
         Error::RefNotARegexp(name) => {
             eprintln!("BuildError: reference `{name}` is not a regexp define");
@@ -46,12 +46,20 @@ fn error_exit(e: Error) -> Result<Infallible, io::Error> {
 }
 
 fn unwrap_parsed<T>(
+    s: &str,
     result: Result<T, peg::error::ParseError<peg::str::LineCol>>,
 ) -> T {
     result.unwrap_or_else(|e| {
-        eprintln!("ParseError: at {}:{},",
+        let s = &s[e.location.offset..];
+        let part = s[..s.len().min(7)]
+            .split_once(any!("\t\r\n"))
+            .map_or(s, |it| it.0);
+        eprintln!("ParseError: at {}:{} near {}",
             e.location.line,
             e.location.column,
+            part.is_empty()
+                .then_some(format_args!("eof"))
+                .unwrap_or(format_args!("`{part}`"))
         );
         eprintln!("expected {}", e.expected);
         exit(3)
@@ -92,7 +100,8 @@ fn proc_it(mut io: impl Read, cfg: &Config) -> io::Result<()> {
     drop(io);
 
     if cfg.rules_only {
-        let rules = unwrap_parsed(parser::rule_list(&input));
+        let rules
+            = unwrap_parsed(&input, parser::rule_list(&input));
         let indent = input.split_once(any!(^" \t"))
             .map_or(&*input, |it| it.0);
         print!("{indent}");
@@ -100,7 +109,8 @@ fn proc_it(mut io: impl Read, cfg: &Config) -> io::Result<()> {
         return Ok(());
     }
 
-    let (begin, rules, end) = unwrap_parsed(parser::script(&input));
+    let (begin, rules, end)
+        = unwrap_parsed(&input, parser::script(&input));
 
     let mut out = stdout().lock();
 

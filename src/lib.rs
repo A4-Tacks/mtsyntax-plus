@@ -42,8 +42,8 @@ macro_rules! assert_match {
 
 #[derive(Debug)]
 pub enum Error {
-    UndefineRef(String),
-    RepeatDefineName(String),
+    UndefinedRef(String),
+    DuplicateDefine(String),
     RefNotARegexp(String),
     IOError(io::Error),
 }
@@ -106,7 +106,7 @@ impl Expr<'_> {
             | &Expr::KwdsToRegex(_) => 0,
             | &Expr::Ref(name)
             | &Expr::IncludeRef(name) => f(name)
-                .ok_or_else(|| Error::UndefineRef(name.into()))?,
+                .ok_or_else(|| Error::UndefinedRef(name.into()))?,
         })
     }
 
@@ -507,7 +507,7 @@ impl Default for BuildContext<'static> {
 impl BuildContext<'_> {
     fn get_rule(&self, name: &str) -> Result<&RuleData> {
         let rule = self.rule_map.get(name)
-            .ok_or_else(|| Error::UndefineRef(name.into()))
+            .ok_or_else(|| Error::UndefinedRef(name.into()))
             .and_then(|data| {
                 data.regexp.then_some(data)
                     .ok_or_else(|| Error::RefNotARegexp(name.into()))
@@ -643,7 +643,7 @@ where I: IntoIterator<Item = Rule<'a>>,
                 .insert(rule.name.into(), data)
                 .is_some()
             {
-                return Err(Error::RepeatDefineName(rule.name.into()));
+                return Err(Error::DuplicateDefine(rule.name.into()));
             }
         }
     }
