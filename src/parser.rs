@@ -61,7 +61,7 @@ fn unicode_ident(s: &str, i: usize) -> RuleResult<&str> {
     if ch != '_' && !unicode_ident::is_xid_start(ch) { err!() }
     loop {
         let (end, ch) = iter.next()
-            .unwrap_or((s.len(), ' '));
+            .unwrap_or((s.len()-i, ' '));
         if ch != '-' && ch != '_' && !unicode_ident::is_xid_continue(ch) {
             return RuleResult::Matched(i+end, &s[i..][..end]);
         }
@@ -211,7 +211,7 @@ peg::parser!(grammar parser() for str {
               / "{" a:unum() _ "," _ "}"
                     { format!("/){{{a},}}/").into() }
               / "{" _ "," _ b:unum() "}"
-                    { format!("/){{,{b}}}/").into() }
+                    { format!("/){{0,{b}}}/").into() }
               / "{" n:unum() "}"
                     { format!("/){{{n}}}/").into() }
               / "*" { "/)*/".into() }
