@@ -45,21 +45,29 @@ fn error_exit(e: Error) -> Result<Infallible, io::Error> {
     exit(3)
 }
 
+fn loc_prompt(s: &str) -> String {
+    if s.is_empty() {
+        return " at eof".into();
+    }
+
+    let word = s.split_once(any!("\t\r\n"))
+        .map_or(s, |it| it.0);
+
+    word.is_empty()
+        .then_some(String::new())
+        .unwrap_or_else(|| format!(" near `{word}`"))
+}
+
 fn unwrap_parsed<T>(
     s: &str,
     result: Result<T, peg::error::ParseError<peg::str::LineCol>>,
 ) -> T {
     result.unwrap_or_else(|e| {
-        let s = &s[e.location.offset..];
-        let part = s[..s.len().min(7)]
-            .split_once(any!("\t\r\n"))
-            .map_or(s, |it| it.0);
-        eprintln!("ParseError: at {}:{} near {}",
+        let loc_prompt = loc_prompt(&s[e.location.offset..]);
+
+        eprintln!("ParseError: at {}:{}{loc_prompt}",
             e.location.line,
             e.location.column,
-            part.is_empty()
-                .then_some(format_args!("eof"))
-                .unwrap_or(format_args!("`{part}`"))
         );
         eprintln!("expected {}", e.expected);
         exit(3)
