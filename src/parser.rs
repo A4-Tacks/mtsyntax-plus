@@ -132,6 +132,13 @@ peg::parser!(grammar parser() for str {
         }
         / expected!("number(0..100000)")
 
+    rule raw_tt()
+        = unum() / regex() / string() / ident()
+        / #{any!("<:>@#$,+=")}
+        / "(" _ (raw_tt() _)* ")"
+        / "[" _ (raw_tt() _)* "]"
+        / "{" _ (raw_tt() _)* "}"
+
     rule color() -> (u32, Color<'input>)
         = "$" n:unum() _ ":" _ res:color_content() { (n, res) }
 
@@ -257,10 +264,13 @@ peg::parser!(grammar parser() for str {
         = exprs:expr() ++ (_ ("+" _)?)
         _ colors:colors()
         { new_rule_data(true, exprs, vec![], colors).into() }
+    rule raw_pattern() -> Pattern<'input>
+        = s:$(&"{" raw_tt()) (_ ",")? { Pattern::Raw(s.into()) }
 
     rule pattern_group_atom() -> Pattern<'input>
         = ":"  _ rul:normal_ruledata() { rul.into() }
         / "::" _ pat:include_pattern() { pat }
+        / raw_pattern()
     rule pattern_group() -> Vec<Pattern<'input>>
         = "{" _ pats:(
             pat:normal_ruledata() { vec![pat.into()] }

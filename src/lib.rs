@@ -413,6 +413,7 @@ impl RuleData<'_> {
 pub enum Pattern<'a> {
     Normal(RuleData<'a>),
     IncludePattern(Cow<'a, str>),
+    Raw(Cow<'a, str>),
 }
 impl<'a> From<RuleData<'a>> for Pattern<'a> {
     fn from(value: RuleData<'a>) -> Self {
@@ -425,7 +426,7 @@ impl Pattern<'_> {
     {
         match self {
             Pattern::Normal(data) => data.update_group_count(f),
-            Pattern::IncludePattern(_) => Ok(()),
+            Pattern::IncludePattern(_) | Pattern::Raw(_) => Ok(()),
         }
     }
 
@@ -440,6 +441,9 @@ impl Pattern<'_> {
             Pattern::Normal(data) => data.build(ctx, octx)?,
             Pattern::IncludePattern(name) => {
                 octx.output(fa!("{{include: {name}}}"))?;
+            },
+            Pattern::Raw(raw) => {
+                octx.output(fa!("{raw}"))?;
             },
         }
         Ok(())

@@ -1,0 +1,41 @@
+foo := /foo/
+bar := /bar/
+raw := {{
+    // comment
+    start: {include: "foo"}
+    end: {include: "foo"}
+    style: "number"
+    contains: [
+        {include: "bar"}
+    ]
+}}
+defs := {
+    {include: "bar"},
+    ::raw
+    {
+        match: "baz"
+    }
+}
+-- end --
+"foo": {
+    match: /foo/
+}
+"bar": {
+    match: /bar/
+}
+"raw": {
+    // comment
+    start: {include: "foo"}
+    end: {include: "foo"}
+    style: "number"
+    contains: [
+        {include: "bar"}
+    ]
+}
+"defs": [
+    {include: "bar"}
+    {include: "raw"}
+    {
+        match: "baz"
+    }
+]
