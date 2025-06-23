@@ -201,6 +201,8 @@ fn main() {
         matched.free
     };
 
+    let mut err = false;
+
     for path in files {
         let res = (|| if path == "-" {
             proc_it(stdin(), &cfg)
@@ -208,7 +210,12 @@ fn main() {
             proc_it(File::open(&path)?, &cfg)
         })();
         if let Err(e) = res {
+            err = true;
             eprintln!("error ({path}): {e}")
         }
+    }
+
+    if err {
+        exit(1)
     }
 }

@@ -46,7 +46,7 @@ checksum = "b4ce301924b7887e9d637144fdade93f9dfff9b60981d4ac161db09720d39aa5"
 
 [[package]]
 name = "mtsyntax-plus"
-version = "0.2.16"
+version = "0.2.17"
 dependencies = [
  "char-classes",
  "getopts-macro",
