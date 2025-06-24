@@ -1,6 +1,15 @@
-use std::{io::Write, fs, path::Path};
+use std::{fmt::Display, fs, io::Write, path::Path, thread};
 
 use mtsyntax_plus::{build, parser, BuildContext, OutputContext};
+
+struct Guard<S: Display>(S);
+impl<S: Display> Drop for Guard<S> {
+    fn drop(&mut self) {
+        if thread::panicking() {
+            eprintln!("{} panic!", self.0)
+        }
+    }
+}
 
 #[test]
 fn main() {
@@ -16,7 +25,9 @@ fn main() {
         .unwrap();
 
     for path in files {
-        let s = fs::read_to_string(path.path()).unwrap();
+        let path = path.path();
+        let _guard = Guard(path.to_string_lossy());
+        let s = fs::read_to_string(&path).unwrap();
         let (input, expected) = s.split_once("\n-- end --\n")
             .expect("cannot find split line");
         let rules = parser::rule_list(input).unwrap();
@@ -33,12 +44,12 @@ fn main() {
         let out = String::from_utf8(out).unwrap();
 
         if out.trim_end() == expected.trim_end() {
-            eprintln!("{:<40} passed", path.path().to_string_lossy());
+            eprintln!("{:<40} passed", path.to_string_lossy());
         } else {
             eprintln!("-- input --\n{}", input.trim_end());
             eprintln!("-- output --\n{}", out.trim_end());
             eprintln!("-- expected --\n{}", expected.trim_end());
-            panic!("{:<40} failed", path.path().to_string_lossy());
+            panic!("{:<40} failed", path.to_string_lossy());
         }
     }
 }
