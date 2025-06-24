@@ -271,7 +271,7 @@ cargo run
 
 如果使用vim编辑MT语法文件的话, 可以使用该[MT高亮]进行高亮等
 
-[MT高亮]: https://github.com/A4-Tacks/abnf_to_mtsx/tree/main/editor-plugins/mtsyntax.vim
+[MT高亮]: https://github.com/A4-Tacks/mtsyntax.vim
 
 一个现成的使用例子: [编译前](https://github.com/A4-Tacks/mindustry_logic_bang_lang/blob/f6428adf4bdecd8ba2245849ff184f54001df6f9/syntax/MT-Manager/MindustryLogic.mtsx)
 [编译后](https://github.com/A4-Tacks/mindustry_logic_bang_lang/blob/f6428adf4bdecd8ba2245849ff184f54001df6f9/syntax/MT-Manager/MindustryLogic-compiled.mtsx)
