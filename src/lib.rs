@@ -1,4 +1,12 @@
-use std::{borrow::Cow, cell::Cell, collections::HashMap, fmt::{self, Display}, io, ops::{Add, AddAssign}};
+use std::{
+    borrow::Cow,
+    cell::Cell,
+    collections::{BTreeMap, HashMap},
+    fmt::{self, Display},
+    io,
+    fmt::Write,
+    ops::{Add, AddAssign},
+};
 
 pub mod parser;
 
@@ -143,7 +151,7 @@ impl Expr<'_> {
         Ok(())
     }
 
-    pub fn build_colors<'a, F, C>(
+    pub fn build_colors<'a, F, C, CI>(
         &self,
         octx: &mut OutputContext<'_, F>,
         ctx: &BuildContext<'_>,
@@ -151,7 +159,8 @@ impl Expr<'_> {
         map: &[u32],
     ) -> Result<()>
     where F: FnMut(std::fmt::Arguments<'_>) -> io::Result<()>,
-          C: Iterator<Item = Option<&'a [Color<'a>]>>,
+          C: Iterator<Item = Option<CI>>,
+          CI: Iterator<Item = &'a Color<'a>>,
     {
         match self {
             | &Expr::KwdsToRegex(_) => (),
@@ -316,7 +325,7 @@ impl<'a> Color<'a> {
 #[derive(Debug)]
 pub struct RuleData<'a> {
     exprs: Vec<Expr<'a>>,
-    colors: Vec<Option<Vec<Color<'a>>>>,
+    colors: Vec<Option<Vec<(usize, Color<'a>)>>>,
     group_count: Option<u32>,
     regexp: bool,
     attrs: Vec<(&'a str, &'a str)>,
@@ -351,11 +360,18 @@ impl RuleData<'_> {
             .iter()
             .skip(1)
             .map(Option::as_deref);
+        let mut sub_color = color.by_ref()
+            .map(|it| it.map(|it| it
+                    .iter().map(|it| &it.1)));
 
         let map = &mut vec![u32::MAX];
         self.build_colors_map(octx, ctx, map, &mut {base_color})?;
         for expr in &self.exprs {
-            expr.build_colors(octx, ctx, color.by_ref(), map)?;
+            expr.build_colors(octx, ctx, sub_color.by_ref(), map)?;
+        }
+
+        if let Some(&(index, _)) = color.flatten().flatten().next() {
+            octx.warn(index, "unused color");
         }
 
         Ok(())
@@ -525,10 +541,11 @@ pub struct OutputContext<'a, F = fn(fmt::Arguments<'_>) -> io::Result<()>> {
     pub newline_str: &'a str,
     pub indent_str: &'a str,
     pub indent_level: u32,
+    messages: BTreeMap<usize, Cow<'a, str>>,
     output: F,
 }
 
-impl<F> OutputContext<'_, F>
+impl<'a, F> OutputContext<'a, F>
 where F: FnMut(fmt::Arguments<'_>) -> io::Result<()>,
 {
     pub fn new(output: F) -> Self {
@@ -536,6 +553,7 @@ where F: FnMut(fmt::Arguments<'_>) -> io::Result<()>,
             newline_str: "\n",
             indent_str: "    ",
             indent_level: 0,
+            messages: BTreeMap::new(),
             output,
         }
     }
@@ -584,6 +602,20 @@ where F: FnMut(fmt::Arguments<'_>) -> io::Result<()>,
         (self.output)(fa!("{}", ch[1]))?;
 
         Ok(res)
+    }
+
+    pub fn warn(&mut self, index: usize, s: impl Into<Cow<'a, str>>) {
+        self.messages.entry(index)
+            .or_insert_with(|| s.into());
+    }
+
+    pub fn warnings(&mut self, source: &str) -> String {
+        let mut warns = String::new();
+        for (&index, s) in &self.messages {
+            let (line, col) = line_column::line_column(source, index);
+            writeln!(&mut warns, "Warn[{line}:{col}]: {s}").unwrap();
+        }
+        warns
     }
 }
 impl Default for OutputContext<'static> {

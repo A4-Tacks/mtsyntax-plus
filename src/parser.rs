@@ -9,14 +9,14 @@ fn new_rule_data<'a>(
     regexp: bool,
     mut exprs: Vec<Expr<'a>>,
     attrs: Vec<(&'a str, &'a str)>,
-    mut colors: Vec<Option<Vec<Color<'a>>>>,
+    mut colors: Vec<Option<Vec<(usize, Color<'a>)>>>,
 ) -> RuleData<'a> {
     if let Some(first) = colors.first_mut()
         .and_then(|color| color.take())
     {
         colors.insert(1, first.into());
         colors.iter_mut().flatten().flatten().for_each(|color| {
-            color.offset_group(1);
+            color.1.offset_group(1);
         });
         exprs.insert(0, Expr::Literal("/(/".into(), 1));
         exprs.push(Expr::Literal("/)/".into(), 0))
@@ -139,8 +139,8 @@ peg::parser!(grammar parser() for str {
         / "[" _ (raw_tt() _)* "]"
         / "{" _ (raw_tt() _)* "}"
 
-    rule color() -> (u32, Color<'input>)
-        = "$" n:unum() _ ":" _ res:color_content() { (n, res) }
+    rule color() -> (u32, usize, Color<'input>)
+        = "$" p:position!() n:unum() _ ":" _ res:color_content() { (n, p, res) }
 
     rule color_content() -> Color<'input>
         = pats:pattern_group()  { pats.into() }
@@ -158,14 +158,14 @@ peg::parser!(grammar parser() for str {
         / "auto"    { PGroup::Auto }
         / id:unum() { PGroup::Id(id) }
 
-    pub rule colors() -> Vec<Option<Vec<Color<'input>>>>
+    pub rule colors() -> Vec<Option<Vec<(usize, Color<'input>)>>>
         = colors:color() ** _
         {
             let mut res = Vec::new();
-            for (id, color) in colors {
+            for (id, pos, color) in colors {
                 let id = id as usize;
                 res.extend((res.len()..=id).map(|_| None));
-                res[id].get_or_insert(vec![]).push(color);
+                res[id].get_or_insert(vec![]).push((pos, color));
             }
             res
         }
