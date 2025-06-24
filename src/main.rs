@@ -1,5 +1,6 @@
 use char_classes::any;
 use getopts_macro::getopts::Matches;
+use line_column::line_column;
 use mtsyntax_plus::{build, parser, BuildContext, Error, OutputContext, Rule};
 use std::{
     convert::Infallible,
@@ -29,7 +30,7 @@ impl Default for Config {
     }
 }
 
-fn error_exit(e: Error) -> Result<Infallible, io::Error> {
+fn error_exit(source: &str, e: Error) -> Result<Infallible, io::Error> {
     match e {
         Error::UndefinedRef(name) => {
             eprintln!("BuildError: undefined reference `{name}`");
@@ -39,6 +40,10 @@ fn error_exit(e: Error) -> Result<Infallible, io::Error> {
         },
         Error::RefNotARegexp(name) => {
             eprintln!("BuildError: reference `{name}` is not a regexp define");
+        },
+        Error::InvalidGroupId(loc, id) => {
+            let (line, col) = line_column(source, loc);
+            eprintln!("BuildError: invalid group id({id}) at {line}:{col}");
         },
         Error::IOError(e) => Err(e)?,
     }
@@ -98,7 +103,7 @@ fn output(
 
     if let Err(e) = build(rules, &mut octx, &mut ctx) {
         eprintln!();
-        error_exit(e)?;
+        error_exit(source, e)?;
     }
 
     Ok(octx.warnings(source))

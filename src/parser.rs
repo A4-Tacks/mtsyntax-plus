@@ -144,13 +144,13 @@ peg::parser!(grammar parser() for str {
 
     rule color_content() -> Color<'input>
         = pats:pattern_group()  { pats.into() }
-        / "parseColor" "("
+        / loc:position!() "parseColor" "("
             _ fg:parse_color_c()
             _ "," _ bg:parse_color_c()
             _ "," _ fmt:estr()
             _ "," _ base:estr()
             _ ")"
-            { Color::ParseColor([fg, bg], [fmt, base]) }
+            { Color::ParseColor(loc, [fg, bg], [fmt, base]) }
         / name:eident()         { name.into() }
 
     rule parse_color_c() -> PGroup

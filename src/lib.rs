@@ -48,11 +48,14 @@ macro_rules! assert_match {
     };
 }
 
+type Loc = usize;
+
 #[derive(Debug)]
 pub enum Error {
     UndefinedRef(String),
     DuplicateDefine(String),
     RefNotARegexp(String),
+    InvalidGroupId(Loc, u32),
     IOError(io::Error),
 }
 impl From<io::Error> for Error {
@@ -209,13 +212,13 @@ pub enum PGroup {
     Id(u32),
 }
 impl PGroup {
-    fn map_id<F>(self, f: F) -> Self
-    where F: FnOnce(u32) -> u32,
+    fn map_id<F>(self, f: F) -> Result<Self>
+    where F: FnOnce(u32) -> Result<u32>,
     {
-        match self {
-            PGroup::Id(id) => Self::Id(f(id)),
+        Ok(match self {
+            PGroup::Id(id) => Self::Id(f(id)?),
             _ => self,
-        }
+        })
     }
 }
 impl Display for PGroup {
@@ -244,7 +247,7 @@ impl AddAssign<u32> for PGroup {
 #[derive(Debug)]
 pub enum Color<'a> {
     Color(Cow<'a, str>),
-    ParseColor([PGroup; 2], [Cow<'a, str>; 2]),
+    ParseColor(Loc, [PGroup; 2], [Cow<'a, str>; 2]),
     Pattern(Vec<Pattern<'a>>),
 }
 
@@ -260,7 +263,7 @@ impl<'a> From<Vec<Pattern<'a>>> for Color<'a> {
 }
 impl<'a> Color<'a> {
     fn offset_group(&mut self, rhs: u32) {
-        if let Color::ParseColor([fg, bg], _) = self {
+        if let Color::ParseColor(_, [fg, bg], _) = self {
             *fg += rhs;
             *bg += rhs;
         }
@@ -278,9 +281,14 @@ impl<'a> Color<'a> {
             Color::Color(color) => {
                 octx.output(fa!("{color}"))?;
             },
-            Color::ParseColor([fg, bg], [fmt, base]) => {
-                let fg = fg.map_id(|id| map[id as usize]);
-                let bg = bg.map_id(|id| map[id as usize]);
+            Color::ParseColor(loc, [fg, bg], [fmt, base]) => {
+                let f = |id| {
+                    map.get(id as usize)
+                        .copied()
+                        .ok_or(Error::InvalidGroupId(*loc, id))
+                };
+                let fg = fg.map_id(f)?;
+                let bg = bg.map_id(f)?;
                 octx.output(fa!("\"parseColor({fg},{bg},{fmt},{base})\""))?;
             },
             Color::Pattern(pats) => {
@@ -325,7 +333,7 @@ impl<'a> Color<'a> {
 #[derive(Debug)]
 pub struct RuleData<'a> {
     exprs: Vec<Expr<'a>>,
-    colors: Vec<Option<Vec<(usize, Color<'a>)>>>,
+    colors: Vec<Option<Vec<(Loc, Color<'a>)>>>,
     group_count: Option<u32>,
     regexp: bool,
     attrs: Vec<(&'a str, &'a str)>,
@@ -541,7 +549,7 @@ pub struct OutputContext<'a, F = fn(fmt::Arguments<'_>) -> io::Result<()>> {
     pub newline_str: &'a str,
     pub indent_str: &'a str,
     pub indent_level: u32,
-    messages: BTreeMap<usize, Cow<'a, str>>,
+    messages: BTreeMap<Loc, Cow<'a, str>>,
     output: F,
 }
 
@@ -604,7 +612,7 @@ where F: FnMut(fmt::Arguments<'_>) -> io::Result<()>,
         Ok(res)
     }
 
-    pub fn warn(&mut self, index: usize, s: impl Into<Cow<'a, str>>) {
+    pub fn warn(&mut self, index: Loc, s: impl Into<Cow<'a, str>>) {
         self.messages.entry(index)
             .or_insert_with(|| s.into());
     }
