@@ -1,0 +1,50 @@
+[[statement]] := {
+    /(?:^|\n|;)\s*/ [[]] /\s*(?=;|$|\r?\n)/
+    $recordAllGroups: true
+}
+[[simple]] := /simple:/ [[]]
+[[statement]]
+read := /read/
+    $0: "statement"
+[[statement]]
+bar := /bar/
+    $recordAllGroups: true
+[[statement]]
+baz := {
+    /baz/
+    $recordAllGroups: true
+}
+simple := /simple/
+[[statement]]
+group := {
+    : /a/
+    [[simple]]
+    : /b/
+}
+-- end --
+"read": {
+    match: /((?:^|\n|;)\s*read\s*(?=;|$|\r?\n))/
+    recordAllGroups: true
+    1: "statement"
+}
+"bar": {
+    match: /(?:^|\n|;)\s*bar\s*(?=;|$|\r?\n)/
+    recordAllGroups: true
+}
+"baz": {
+    match: /(?:^|\n|;)\s*baz\s*(?=;|$|\r?\n)/
+    recordAllGroups: true
+}
+"simple": {
+    match: /simple/
+}
+"group": [
+    {
+        match: /(?:^|\n|;)\s*a\s*(?=;|$|\r?\n)/
+        recordAllGroups: true
+    }
+    {
+        match: /(?:^|\n|;)\s*simple:b\s*(?=;|$|\r?\n)/
+        recordAllGroups: true
+    }
+]

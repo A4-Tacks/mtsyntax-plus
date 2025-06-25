@@ -1,7 +1,7 @@
 use char_classes::any;
 use getopts_macro::getopts::Matches;
 use line_column::line_column;
-use mtsyntax_plus::{build, parser, BuildContext, Error, OutputContext, Rule};
+use mtsyntax_plus::{build, parser::{self, Context}, BuildContext, Error, OutputContext, Rule};
 use std::{
     convert::Infallible,
     env::args,
@@ -117,9 +117,11 @@ fn proc_it(mut io: impl Read, cfg: &Config) -> io::Result<()> {
     io.read_to_string(&mut input)?;
     drop(io);
 
+    let ctx = &mut Context::default();
+
     if cfg.rules_only {
         let rules
-            = unwrap_parsed(&input, parser::rule_list(&input));
+            = unwrap_parsed(&input, parser::rule_list(&input, ctx));
         let indent = input.split_once(any!(^" \t"))
             .map_or(&*input, |it| it.0);
         print!("{indent}");
@@ -129,7 +131,7 @@ fn proc_it(mut io: impl Read, cfg: &Config) -> io::Result<()> {
     }
 
     let (begin, rules, end)
-        = unwrap_parsed(&input, parser::script(&input));
+        = unwrap_parsed(&input, parser::script(&input, ctx));
 
     let mut out = stdout().lock();
 

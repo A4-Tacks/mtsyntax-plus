@@ -1,0 +1,91 @@
+[[template]] := {
+    /(a)/ [[]] /(b)/ [[]] /(c)/
+    $1: "ta"
+    $2: "tb"
+    $3: "tc"
+}
+[[template]]
+foo := /(x)(y)/
+    $1: "x"
+[[template]]
+foo1 := ($x /x/) /(y)/
+[[template]]
+zero := /m/
+    $0: "x"
+[[template]]
+zero1 := /m/
+    $0: "x"
+    $0: "x1"
+
+[[missing-color-template]] := {
+    /(a)/ [[]] /(b)/
+    $2: "end"
+}
+[[missing-color-template]]
+m1 := /m/
+[[missing-color-template]]
+m2 := /(m)/
+[[missing-color-template]]
+m3 := /(m)/
+    $1: "m"
+[[missing-color-template]]
+m4 := /(m)/
+    $0: "all"
+
+[[missing-color-template]]
+m5 := ($m /m/)
+-- end --
+"foo": {
+    match: /(a)(x)(y)(b)(x)(y)(c)/
+    1: "ta"
+    2: "x"
+    4: "tb"
+    5: "x"
+    7: "tc"
+}
+"foo1": {
+    match: /(a)(x)(y)(b)(x)(y)(c)/
+    1: "ta"
+    2: "x"
+    4: "tb"
+    5: "x"
+    7: "tc"
+}
+"zero": {
+    match: /((a)m(b)m(c))/
+    1: "x"
+    2: "ta"
+    3: "tb"
+    4: "tc"
+}
+"zero1": {
+    match: /((a)m(b)m(c))/
+    1: "x"
+    1: "x1"
+    2: "ta"
+    3: "tb"
+    4: "tc"
+}
+"m1": {
+    match: /(a)m(b)/
+    2: "end"
+}
+"m2": {
+    match: /(a)(m)(b)/
+    3: "end"
+}
+"m3": {
+    match: /(a)(m)(b)/
+    2: "m"
+    3: "end"
+}
+"m4": {
+    match: /((a)(m)(b))/
+    1: "all"
+    4: "end"
+}
+"m5": {
+    match: /(a)(m)(b)/
+    2: "m"
+    3: "end"
+}

@@ -1,6 +1,12 @@
+mod context;
+
+pub use context::*;
+use either::Either::{self, Left, Right};
 pub use parser::*;
 
-use crate::{Color, Expr, PGroup, Pattern, Rule, RuleData};
+use crate::{
+    Color, ColorDef, Expr, OffsetGroup, PGroup, Pattern, Rule, RuleData,
+};
 use char_classes::FirstElem;
 use peg::RuleResult;
 use std::borrow::Cow;
@@ -8,16 +14,24 @@ use std::borrow::Cow;
 fn new_rule_data<'a>(
     regexp: bool,
     mut exprs: Vec<Expr<'a>>,
-    attrs: Vec<(&'a str, &'a str)>,
-    mut colors: Vec<Option<Vec<(usize, Color<'a>)>>>,
+    mut attrs: Vec<(&'a str, &'a str)>,
+    mut colors: Vec<Option<ColorDef<'a>>>,
+    ctx: &mut Context<'a>,
+    templates: &[&str],
 ) -> RuleData<'a> {
+    templates.iter()
+        .rev()
+        .copied()
+        .for_each(|name|
+    {
+        ctx.apply_template(regexp, name, &mut exprs, &mut attrs, &mut colors);
+    });
+
     if let Some(first) = colors.first_mut()
         .and_then(|color| color.take())
     {
         colors.insert(1, first.into());
-        colors.iter_mut().flatten().flatten().for_each(|color| {
-            color.1.offset_group(1);
-        });
+        colors.offset_group(1);
         exprs.insert(0, Expr::Literal("/(/".into(), 1));
         exprs.push(Expr::Literal("/)/".into(), 0))
     }
@@ -78,7 +92,9 @@ macro_rules! any {
     };
 }
 
-peg::parser!(grammar parser() for str {
+peg::parser!(grammar parser(ctx: &mut Context<'input>) for str {
+    use crate::utils::Assign;
+
     rule newline()
         = "\r"? "\n"
 
@@ -143,7 +159,8 @@ peg::parser!(grammar parser() for str {
         = "$" p:position!() n:unum() _ ":" _ res:color_content() { (n, p, res) }
 
     rule color_content() -> Color<'input>
-        = pats:pattern_group()  { pats.into() }
+        = templates:templates()
+          pats:pattern_group(&templates) { pats.into() }
         / loc:position!() "parseColor" "("
             _ fg:parse_color_c()
             _ "," _ bg:parse_color_c()
@@ -158,14 +175,14 @@ peg::parser!(grammar parser() for str {
         / "auto"    { PGroup::Auto }
         / id:unum() { PGroup::Id(id) }
 
-    pub rule colors() -> Vec<Option<Vec<(usize, Color<'input>)>>>
+    pub rule colors() -> Vec<Option<ColorDef<'input>>>
         = colors:color() ** _
         {
-            let mut res = Vec::new();
+            let mut res: Vec<Option<ColorDef>> = Vec::new();
             for (id, pos, color) in colors {
-                let id = id as usize;
-                res.extend((res.len()..=id).map(|_| None));
-                res[id].get_or_insert(vec![]).push((pos, color));
+                res.assign(id as usize)
+                    .get_or_insert_default()
+                    .push((pos, color));
             }
             res
         }
@@ -238,7 +255,7 @@ peg::parser!(grammar parser() for str {
             }
 
     pub rule expr() -> Expr<'input>
-        = s:(regex() / string()) { Expr::Literal(s.into(), group_count(s).unwrap()) }
+        = s:(regex() / string()) { Expr::Literal(s.into(), group_count(s, ctx).unwrap()) }
         / expr_sugar()
         / "keywordsToRegex" "(" _ s:string() ++ (_ ("," _)?) _ ("," _)? ")"
             {
@@ -252,46 +269,89 @@ peg::parser!(grammar parser() for str {
         / "include(" _ n:eident() _ c:("," _ c:unum() _ {c})? ")"
               { Expr::Include(n, c.unwrap_or(0)) }
 
-    rule normal_ruledata() -> RuleData<'input>
+    rule template_expr() -> Either<Expr<'input>, ()>
+        = "[[" _ "]]" { Right(()) }
+        / e:expr() { Left(e) }
+    rule regex_template() -> RegexTemplate<'input>
+        = texprs:template_expr() ++ (_ ("+" _)?)
+        _ colors:colors()
+        { RegexTemplate { texprs, colors } }
+    rule pattern_template() -> PatternTemplate<'input>
+        = texprs:template_expr() ++ (_ ("+" _)?)
+        _ attrs:attrs()
+        _ colors:colors()
+        { PatternTemplate { base: RegexTemplate { texprs, colors }, attrs } }
+    rule template_insert_regex(name: &'input str)
+        = template:regex_template()
+        { ctx.regex_templates.insert(name, template); }
+    rule template_insert_pattern(name: &'input str)
+        = template:pattern_template()
+        { ctx.pattern_templates.insert(name, template); }
+    #[cache]
+    rule template_def()
+        = "[[" _ name:ident() _ "]]" _ ":="
+        ({ ctx.check_defined_name(name) })
+        _ ("{" _ template_insert_pattern(name) _ "}"
+               / template_insert_pattern(name))
+        / "[[" _ name:ident() _ "]]" _ "="
+        ({ ctx.check_defined_name(name) })
+        _ ("{" _ template_insert_regex(name) _ "}"
+               / template_insert_regex(name))
+    rule templates() -> Vec<&'input str>
+        = p:position!() t:("[[" _ nm:ident() _ "]]" _ {nm})*
+        {
+            if !t.is_empty() { ctx.last_template_use = p.into() }
+            t
+        }
+
+    rule normal_ruledata(templates: &[&str]) -> RuleData<'input>
         = exprs:expr() ++ (_ ("+" _)?)
         _ attrs:attrs()
         _ colors:colors()
-        { new_rule_data(false, exprs, attrs, colors) }
+        { new_rule_data(false, exprs, attrs, colors, ctx, templates) }
     rule include_pattern() -> Pattern<'input>
         = name:eident()
         { Pattern::IncludePattern(name) }
-    rule normal_pattern() -> Pattern<'input>
+    rule normal_pattern(templates: &[&str]) -> Pattern<'input>
         = exprs:expr() ++ (_ ("+" _)?)
         _ colors:colors()
-        { new_rule_data(true, exprs, vec![], colors).into() }
+        { new_rule_data(true, exprs, vec![], colors, ctx, templates).into() }
     rule raw_pattern() -> Pattern<'input>
         = s:$(&"{" raw_tt()) (_ ",")? { Pattern::Raw(s.into()) }
 
-    rule pattern_group_atom() -> Pattern<'input>
-        = ":"  _ rul:normal_ruledata() { rul.into() }
-        / "::" _ pat:include_pattern() { pat }
+    rule pattern_group_atom(ext_templates: &[&str]) -> Pattern<'input>
+        = "::" _ pat:include_pattern() { pat }
+        / sub_templates:templates()
+          ":"  _ rul:normal_ruledata(&ext_templates.iter().copied()
+                .chain(sub_templates)
+                .collect::<Vec<_>>())
+          { rul.into() }
         / raw_pattern()
-    rule pattern_group() -> Vec<Pattern<'input>>
+    rule pattern_group(templates: &[&str]) -> Vec<Pattern<'input>>
         = "{" _ pats:(
-            pat:normal_ruledata() { vec![pat.into()] }
-            / pattern_group_atom() ++ _
+            pat:normal_ruledata(templates) { vec![pat.into()] }
+            / pattern_group_atom(templates) ++ _
         ) _ "}" { pats }
 
     pub rule mt_rule() -> Rule<'input>
-        = name:ident()
+        = templates:templates()
+          name:ident()
         _ pats:(
-            ":=" _ rul:normal_ruledata() { vec![rul.into()] }
-          / ":=" _ pats:pattern_group() { pats }
-          / "=" _ pat:normal_pattern() { vec![pat] }
-        ) {
+            ":=" _ rul:normal_ruledata(&templates) { vec![rul.into()] }
+          / ":=" _ pats:pattern_group(&templates) { pats }
+          / "=" _ pat:normal_pattern(&templates) { vec![pat] }
+        )
+        {
             Rule {
                 name,
                 pats,
             }
         }
+        / template_def() _ rul:mt_rule() { rul }
 
     pub rule rule_list() -> Vec<Rule<'input>>
-        = _ s:mt_rule() ++ _ _ { s }
+        = ({ctx.init()})
+        _ s:mt_rule() ++ _ _ { s }
 
     pub rule script() -> (&'input str, Vec<Rule<'input>>, &'input str)
         =
@@ -319,6 +379,10 @@ mod tests {
 
     use super::*;
 
+    fn ctx() -> Context<'static> {
+        Default::default()
+    }
+
     #[test]
     fn parse_test() {
         let src = r#"
@@ -333,7 +397,7 @@ mod tests {
         "#;
         println!("{src}");
 
-        let rules = parser::rule_list(src)
+        let rules = parser::rule_list(src, &mut ctx())
             .unwrap_or_else(|e| {
                 eprintln!("line {} column {}", e.location.line, e.location.column);
                 eprintln!("expected {}", e.expected);
@@ -363,7 +427,7 @@ mod tests {
         "#;
         println!("{src}");
 
-        dbg!(script(src).unwrap());
+        dbg!(script(src, &mut ctx()).unwrap());
     }
 
     #[test]
@@ -381,7 +445,7 @@ mod tests {
             "你-好",
         ];
         for data in datas {
-            assert_eq!(parser::ident(data), Ok(data));
+            assert_eq!(parser::ident(data, &mut ctx()), Ok(data));
         }
 
         let fails = [
@@ -395,7 +459,7 @@ mod tests {
         ];
 
         for fail in fails {
-            assert!(parser::ident(fail).is_err(), "{fail:?}");
+            assert!(parser::ident(fail, &mut ctx()).is_err(), "{fail:?}");
         }
     }
 
@@ -469,7 +533,7 @@ mod tests {
         ];
 
         for (src, count) in datas {
-            let c = match parser::group_count(src) {
+            let c = match parser::group_count(src, &mut ctx()) {
                 Ok(c) => c,
                 Err(e) => {
                     eprintln!("src: {src}");

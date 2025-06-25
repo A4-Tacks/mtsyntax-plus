@@ -1,6 +1,6 @@
 use std::{fmt::Display, fs, io::Write, path::Path, thread};
 
-use mtsyntax_plus::{build, parser, BuildContext, OutputContext};
+use mtsyntax_plus::{build, parser::{self, Context}, BuildContext, OutputContext};
 
 struct Guard<S: Display>(S);
 impl<S: Display> Drop for Guard<S> {
@@ -30,7 +30,9 @@ fn main() {
         let s = fs::read_to_string(&path).unwrap();
         let (input, expected) = s.split_once("\n-- end --\n")
             .expect("cannot find split line");
-        let rules = parser::rule_list(input).unwrap();
+        let pctx = &mut Context::default();
+        pctx.source = input;
+        let rules = parser::rule_list(input, pctx).unwrap();
 
         let mut out = vec![];
 

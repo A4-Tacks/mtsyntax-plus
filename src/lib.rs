@@ -8,6 +8,7 @@ use std::{
     ops::{Add, AddAssign},
 };
 
+mod utils;
 pub mod parser;
 
 macro_rules! fa {
@@ -66,7 +67,7 @@ impl From<io::Error> for Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Expr<'a> {
     /// regexp or string literal, and group count.
     /// e.g /ab/ "abi"
@@ -119,6 +120,15 @@ impl Expr<'_> {
             | &Expr::IncludeRef(name) => f(name)
                 .ok_or_else(|| Error::UndefinedRef(name.into()))?,
         })
+    }
+
+    /// 统计本地组数, 远程组或者无法本地访问的如 [`Expr::ColorGroup`] 均为 0
+    pub fn hard_group_count(&self) -> u32 {
+        match *self {
+            Expr::Include(_, c) | Expr::Literal(_, c) => c,
+            Expr::ColorGroup(_) | Expr::KwdsToRegex(_) => 0,
+            Expr::Ref(_) | Expr::IncludeRef(_) => 0,
+        }
     }
 
     fn build_colors_map<F>(
@@ -205,7 +215,7 @@ impl Expr<'_> {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Copy)]
 pub enum PGroup {
     Underline,
     Auto,
@@ -244,7 +254,7 @@ impl AddAssign<u32> for PGroup {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Color<'a> {
     Color(Cow<'a, str>),
     ParseColor(Loc, [PGroup; 2], [Cow<'a, str>; 2]),
@@ -262,13 +272,6 @@ impl<'a> From<Vec<Pattern<'a>>> for Color<'a> {
     }
 }
 impl<'a> Color<'a> {
-    fn offset_group(&mut self, rhs: u32) {
-        if let Color::ParseColor(_, [fg, bg], _) = self {
-            *fg += rhs;
-            *bg += rhs;
-        }
-    }
-
     fn build<F>(
         &self,
         ctx: &BuildContext<'a>,
@@ -330,10 +333,43 @@ impl<'a> Color<'a> {
     }
 }
 
-#[derive(Debug)]
+type ColorDef<'a> = Vec<(Loc, Color<'a>)>;
+
+trait OffsetGroup {
+    fn offset_group(&mut self, rhs: u32);
+}
+impl OffsetGroup for Color<'_> {
+    fn offset_group(&mut self, rhs: u32) {
+        if let Color::ParseColor(_, [fg, bg], _) = self {
+            *fg += rhs;
+            *bg += rhs;
+        }
+    }
+}
+impl OffsetGroup for ColorDef<'_> {
+    fn offset_group(&mut self, rhs: u32) {
+        self.iter_mut()
+            .for_each(|(_, color)| color.offset_group(rhs));
+    }
+}
+impl<T: OffsetGroup> OffsetGroup for [T] {
+    fn offset_group(&mut self, rhs: u32) {
+        self.iter_mut()
+            .for_each(|color| color.offset_group(rhs));
+    }
+}
+impl<T: OffsetGroup> OffsetGroup for Option<T> {
+    fn offset_group(&mut self, rhs: u32) {
+        if let Some(color) = self {
+            color.offset_group(rhs);
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RuleData<'a> {
     exprs: Vec<Expr<'a>>,
-    colors: Vec<Option<Vec<(Loc, Color<'a>)>>>,
+    colors: Vec<Option<ColorDef<'a>>>,
     group_count: Option<u32>,
     regexp: bool,
     attrs: Vec<(&'a str, &'a str)>,
@@ -429,7 +465,7 @@ impl RuleData<'_> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Pattern<'a> {
     Normal(RuleData<'a>),
     IncludePattern(Cow<'a, str>),
@@ -470,7 +506,7 @@ impl Pattern<'_> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Rule<'a> {
     name: &'a str,
     pats: Vec<Pattern<'a>>,
