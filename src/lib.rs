@@ -179,7 +179,7 @@ impl Expr<'_> {
             },
             | &Expr::ColorGroup(ref color) => {
                 let id = ctx.current_color.get();
-                octx.newline()?;
+                octx.sep()?;
                 octx.output(fa!("{id}: {color}"))?;
                 ctx.current_color.set(id + 1);
             },
@@ -191,7 +191,7 @@ impl Expr<'_> {
                     let id = i + cur_color;
                     if let Some(Some(subcolors)) = color.next() {
                         for color in subcolors {
-                            octx.newline()?;
+                            octx.sep()?;
                             octx.output(fa!("{id}: "))?;
                             color.build(ctx, octx, map)?;
                         }
@@ -408,18 +408,14 @@ impl RuleData<'_> {
     where F: FnMut(std::fmt::Arguments<'_>) -> io::Result<()>,
     {
         if self.regexp {
-            out_exprs(&self.exprs, |args| {
-                octx.output(args)
-            })?;
+            out_exprs(&self.exprs, octx)?;
         } else {
-            octx.with_block(['{', '}'], |octx| {
+            octx.with_sep_block(['{', '}'], |octx| {
                 octx.output(fa!("match: "))?;
-                out_exprs(&self.exprs, |args| {
-                    octx.output(args)
-                })?;
+                out_exprs(&self.exprs, octx)?;
 
                 for &(attr, val) in &self.attrs {
-                    octx.newline()?;
+                    octx.sep()?;
                     octx.output(fa!("{attr}: {val}"))?;
                 }
 
@@ -549,6 +545,7 @@ pub struct OutputContext<'a, F = fn(fmt::Arguments<'_>) -> io::Result<()>> {
     pub newline_str: &'a str,
     pub indent_str: &'a str,
     pub indent_level: u32,
+    pub compact: bool,
     messages: BTreeMap<Loc, Cow<'a, str>>,
     output: F,
 }
@@ -561,6 +558,7 @@ where F: FnMut(fmt::Arguments<'_>) -> io::Result<()>,
             newline_str: "\n",
             indent_str: "    ",
             indent_level: 0,
+            compact: false,
             messages: BTreeMap::new(),
             output,
         }
@@ -569,6 +567,22 @@ where F: FnMut(fmt::Arguments<'_>) -> io::Result<()>,
     pub fn newline(&mut self) -> io::Result<()> {
         (self.output)(fa!("{}", self.newline_str))?;
         self.indent()
+    }
+
+    pub fn sep(&mut self) -> io::Result<()> {
+        if self.compact {
+            self.output(fa!(", "))
+        } else {
+            self.newline()
+        }
+    }
+
+    pub fn splr(&mut self, s: impl Display) -> io::Result<()> {
+        if self.compact {
+            self.output(fa!("{s}"))
+        } else {
+            self.output(fa!(" {s} "))
+        }
     }
 
     pub fn output(&mut self, args: fmt::Arguments<'_>) -> io::Result<()> {
@@ -612,6 +626,26 @@ where F: FnMut(fmt::Arguments<'_>) -> io::Result<()>,
         Ok(res)
     }
 
+    pub fn with_sep_block<F1, R>(&mut self, ch: [char; 2], f: F1) -> io::Result<R>
+    where F1: FnOnce(&mut Self) -> R,
+    {
+        let res = self.with_indent(|this| {
+            (this.output)(fa!("{}", ch[0]))?;
+            if !this.compact {
+                this.newline()?;
+            }
+
+            io::Result::Ok(f(this))
+        })?;
+
+        if !self.compact {
+            self.newline()?;
+        }
+        (self.output)(fa!("{}", ch[1]))?;
+
+        Ok(res)
+    }
+
     pub fn warn(&mut self, index: Loc, s: impl Into<Cow<'a, str>>) {
         self.messages.entry(index)
             .or_insert_with(|| s.into());
@@ -636,7 +670,7 @@ impl Default for OutputContext<'static> {
 }
 
 /// 融合相邻项并输出结果
-fn out_exprs<'a, F, I>(exprs: I, mut f: F) -> io::Result<()>
+fn out_exprs<'a, F, I>(exprs: I, octx: &mut OutputContext<'_, F>) -> io::Result<()>
 where F: FnMut(std::fmt::Arguments<'_>) -> io::Result<()>,
       I: IntoIterator<Item = &'a Expr<'a>>,
 {
@@ -656,11 +690,12 @@ where F: FnMut(std::fmt::Arguments<'_>) -> io::Result<()>,
             a.push_str(&b[1..]);
             a
         } else {
-            f(fa!("{a} + "))?;
+            octx.output(fa!("{a}"))?;
+            octx.splr('+')?;
             b
         })
     })?;
-    f(fa!("{}", end))
+    octx.output(fa!("{}", end))
 }
 
 pub fn build<'a, I, F>(

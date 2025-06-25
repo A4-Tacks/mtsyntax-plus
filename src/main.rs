@@ -18,6 +18,7 @@ struct Config {
     spaces: NonZeroU32,
     newline: String,
     rules_only: bool,
+    compact: bool,
 }
 
 impl Default for Config {
@@ -26,6 +27,7 @@ impl Default for Config {
             spaces: NonZeroU32::new(4).unwrap(),
             newline: "\n".into(),
             rules_only: false,
+            compact: false,
         }
     }
 }
@@ -92,6 +94,7 @@ fn output(
             write!(&mut out, "{args}")
         });
 
+    octx.compact = cfg.compact;
     octx.newline_str = &cfg.newline;
     if let Some(' ') | None = indent.chars().next() {
         octx.indent_level = indent.len() as u32 / cfg.spaces;
@@ -158,6 +161,7 @@ where T: FromStr,
 
 fn main() {
     let options = getopts_macro::getopts_options! {
+        -c  --compact       "Using compact output";
         -r  --rules         "Parse rules only";
         -s  --spaces=N      "Indent spaces";
         -n  --newline=S     "Newline string";
@@ -202,6 +206,7 @@ fn main() {
         spaces,
         newline,
     }
+    cfg.compact    = matched.opt_present("compact");
     cfg.rules_only = matched.opt_present("rules");
 
     let files = if matched.free.is_empty() {
