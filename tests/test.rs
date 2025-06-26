@@ -46,9 +46,18 @@ fn main() {
         if out.trim_end() == expected.trim_end() {
             eprintln!("{:<40} passed", path.to_string_lossy());
         } else {
+            let diff = dissimilar::diff(expected, &out);
             eprintln!("-- input --\n{}", input.trim_end());
             eprintln!("-- output --\n{}", out.trim_end());
             eprintln!("-- expected --\n{}", expected.trim_end());
+            eprintln!("-- diff --");
+            for diff_chunk in diff {
+                match diff_chunk {
+                    dissimilar::Chunk::Equal(s) => print!("{s}"),
+                    dissimilar::Chunk::Delete(s) => print!("\x1b[41m{s}\x1b[m\x1b[K"),
+                    dissimilar::Chunk::Insert(s) => print!("\x1b[42m{s}\x1b[m\x1b[K"),
+                }
+            }
             panic!("{:<40} failed", path.to_string_lossy());
         }
     }
