@@ -335,5 +335,5 @@ cargo run
 
 [MT高亮]: https://github.com/A4-Tacks/mtsyntax.vim
 
-一个现成的使用例子: [编译前](https://github.com/A4-Tacks/mindustry_logic_bang_lang/blob/f6428adf4bdecd8ba2245849ff184f54001df6f9/syntax/MT-Manager/MindustryLogic.mtsx)
-[编译后](https://github.com/A4-Tacks/mindustry_logic_bang_lang/blob/f6428adf4bdecd8ba2245849ff184f54001df6f9/syntax/MT-Manager/MindustryLogic-compiled.mtsx)
+一个现成的使用例子: [编译前](https://github.com/A4-Tacks/mindustry_logic_bang_lang/blob/89fdf27a70335fc8bff6a9bfd362d3929f27a8f1/syntax/MT-Manager/MindustryLogic.mtsx)
+[编译后](https://github.com/A4-Tacks/mindustry_logic_bang_lang/blob/89fdf27a70335fc8bff6a9bfd362d3929f27a8f1/syntax/MT-Manager/MindustryLogic-compiled.mtsx)
